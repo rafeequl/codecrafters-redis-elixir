@@ -26,7 +26,7 @@ defmodule Server do
   defp accept_connections(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
 
-    process_client_commands(client)
+    Task.start(fn -> process_client_commands(client) end)
 
     # After processing the request, accept the next connection
     accept_connections(socket)
