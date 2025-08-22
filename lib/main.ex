@@ -26,6 +26,7 @@ defmodule Server do
   defp accept_connections(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
 
+    # Process the client commands in a separate task, this allows us to accept more connections
     Task.start(fn -> process_client_commands(client) end)
 
     # After processing the request, accept the next connection
@@ -38,18 +39,17 @@ defmodule Server do
         IO.puts("Raw data: #{inspect(data)}")
         
         # Parse RESP format to extract commands
-        commands = parse_resp(data)
+        commands = RespParser.parse(data)
         IO.puts("Parsed commands: #{inspect(commands)}")
         
         # Process each command
         Enum.each(commands, fn command ->
-          if command == "PING" do
-            :gen_tcp.send(client, "+PONG\r\n")
-          end
+          response = CommandProcessor.process(command)
+          :gen_tcp.send(client, response)
         end)
         
-        # Continue processing more commands from this client
-        process_client_commands(client)
+        # Close the connection after processing commands
+        :gen_tcp.close(client)
         
       {:error, :closed} ->
         IO.puts("Client connection closed")
@@ -59,17 +59,54 @@ defmodule Server do
         :gen_tcp.close(client)
     end
   end
+end
 
-  defp parse_resp(data) do
-    # Simple RESP parser for basic commands
-    # For "*1\r\n$4\r\nPING\r\n" format
-    case String.split(data, "\r\n", trim: true) do
-      ["*1", "$4", "PING"] -> ["PING"]
-      ["*1", "$4", "PING", ""] -> ["PING"]
+defmodule RespParser do
+  @moduledoc """
+  Simple RESP parser for basic commands
+  """
+
+  def parse(data) do
+    IO.puts("Raw data: #{inspect(data)}")
+    
+    # Split by \r\n and filter out empty strings and length indicators
+    parts = data 
+            |> String.split("\r\n") 
+            |> Enum.filter(fn part -> 
+              part != "" and not String.starts_with?(part, "*") and not String.starts_with?(part, "$")
+            end)
+    
+    IO.puts("Parsed parts: #{inspect(parts)}")
+    
+    case parts do
+      ["PING"] -> [%{command: "PING", args: []}]
+      ["ECHO", message] -> [%{command: "ECHO", args: [message]}]
       _ -> 
-        IO.puts("Unknown RESP format: #{inspect(data)}")
+        IO.puts("Unknown command: #{inspect(parts)}")
         []
     end
+  end
+end
+
+defmodule CommandProcessor do
+  @moduledoc """
+  Command processor for Redis commands
+  """
+
+  @doc """
+  Process a command and return the RESP response
+  """
+  def process(%{command: "PING", args: []}) do
+    "+PONG\r\n"
+  end
+
+  def process(%{command: "ECHO", args: [message]}) do
+    "$#{byte_size(message)}\r\n#{message}\r\n"
+  end
+
+  def process(%{command: command, args: _args}) do
+    IO.puts("Unknown command: #{command}")
+    "-ERR unknown command '#{command}'\r\n"
   end
 end
 
