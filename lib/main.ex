@@ -7,6 +7,8 @@ defmodule Server do
 
   def start(_type, _args) do
     Supervisor.start_link([{Task, fn -> Server.listen() end}], strategy: :one_for_one)
+    # Start Agent to store data
+    {:ok, _pid} = Agent.start_link(fn -> %{} end, name: :data)
   end
 
   @doc """
@@ -81,6 +83,8 @@ defmodule RespParser do
     case parts do
       ["PING"] -> [%{command: "PING", args: []}]
       ["ECHO", message] -> [%{command: "ECHO", args: [message]}]
+      ["SET", key, value] -> [%{command: "SET", args: [key, value]}]
+      ["GET", key] -> [%{command: "GET", args: [key]}]
       _ -> 
         IO.puts("Unknown command: #{inspect(parts)}")
         []
@@ -102,6 +106,18 @@ defmodule CommandProcessor do
 
   def process(%{command: "ECHO", args: [message]}) do
     "$#{byte_size(message)}\r\n#{message}\r\n"
+  end
+
+  def process(%{command: "SET", args: [key, value]}) do
+    Agent.update(:data, fn data -> Map.put(data, key, value) end)
+    "+OK\r\n"
+  end
+
+  def process(%{command: "GET", args: [key]}) do
+    # We need to retrieve the value from the map
+    value = Agent.get(:data, fn data -> Map.get(data,key) end)
+
+    "$#{byte_size(value)}\r\n#{value}\r\n"
   end
 
   def process(%{command: command, args: _args}) do
