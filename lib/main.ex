@@ -48,8 +48,8 @@ defmodule Server do
           :gen_tcp.send(client, response)
         end)
         
-        # Close the connection after processing commands
-        :gen_tcp.close(client)
+        # Continue reading more commands from the same connection
+        process_client_commands(client)
         
       {:error, :closed} ->
         IO.puts("Client connection closed")
