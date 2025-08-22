@@ -20,6 +20,10 @@ defmodule Server do
     # ensures that we don't run into 'Address already in use' errors
     {:ok, socket} = :gen_tcp.listen(6379, [:binary, active: false, reuseaddr: true])
 
+    accept_connections(socket)
+  end
+
+  defp accept_connections(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
 
     case :gen_tcp.recv(client, 0) do
@@ -27,10 +31,11 @@ defmodule Server do
         if String.contains?(data, "PING") do
           :gen_tcp.send(client, "+PONG\r\n")
         end
-        :gen_tcp.close(client)
       {:error, _} ->
         :gen_tcp.close(client)
     end
+
+    accept_connections(socket)
   end
 end
 
