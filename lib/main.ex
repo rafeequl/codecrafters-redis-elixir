@@ -8,7 +8,7 @@ defmodule Server do
   def start(_type, _args) do
     Supervisor.start_link([{Task, fn -> Server.listen() end}], strategy: :one_for_one)
     # Start Agent to store data
-    {:ok, _pid} = Agent.start_link(fn -> %{} end, name: :data)
+    {:ok, _pid} = Agent.start_link(fn -> %{} end, name: :key_value_store)
   end
 
   @doc """
@@ -109,13 +109,13 @@ defmodule CommandProcessor do
   end
 
   def process(%{command: "SET", args: [key, value]}) do
-    Agent.update(:data, fn data -> Map.put(data, key, value) end)
+    Agent.update(:key_value_store, fn data -> Map.put(data, key, value) end)
     "+OK\r\n"
   end
 
   def process(%{command: "GET", args: [key]}) do
     # We need to retrieve the value from the map
-    value = Agent.get(:data, fn data -> Map.get(data,key) end)
+    value = Agent.get(:key_value_store, fn data -> Map.get(data,key) end)
 
     "$#{byte_size(value)}\r\n#{value}\r\n"
   end
