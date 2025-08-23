@@ -39,20 +39,20 @@ defmodule Server do
     case :gen_tcp.recv(client, 0) do
       {:ok, data} ->
         IO.puts("Raw data: #{inspect(data)}")
-        
+
         # Parse RESP format to extract commands
         commands = RespParser.parse(data)
         IO.puts("Parsed commands: #{inspect(commands)}")
-        
+
         # Process each command
         Enum.each(commands, fn command ->
           response = CommandProcessor.process(command)
           :gen_tcp.send(client, response)
         end)
-        
+
         # Continue reading more commands from the same connection
         process_client_commands(client)
-        
+
       {:error, :closed} ->
         IO.puts("Client connection closed")
         :gen_tcp.close(client)
@@ -70,22 +70,23 @@ defmodule RespParser do
 
   def parse(data) do
     IO.puts("Raw data: #{inspect(data)}")
-    
+
     # Split by \r\n and filter out empty strings and length indicators
-    parts = data 
-            |> String.split("\r\n") 
-            |> Enum.filter(fn part -> 
+    parts = data
+            |> String.split("\r\n")
+            |> Enum.filter(fn part ->
               part != "" and not String.starts_with?(part, "*") and not String.starts_with?(part, "$")
             end)
-    
+
     IO.puts("Parsed parts: #{inspect(parts)}")
-    
+
     case parts do
       ["PING"] -> [%{command: "PING", args: []}]
       ["ECHO", message] -> [%{command: "ECHO", args: [message]}]
       ["SET", key, value] -> [%{command: "SET", args: [key, value]}]
+      ["SET", key, value, px, ttl] -> [%{command: "SET", args: [key, value, px, ttl]}]
       ["GET", key] -> [%{command: "GET", args: [key]}]
-      _ -> 
+      _ ->
         IO.puts("Unknown command: #{inspect(parts)}")
         []
     end
@@ -109,15 +110,42 @@ defmodule CommandProcessor do
   end
 
   def process(%{command: "SET", args: [key, value]}) do
-    Agent.update(:key_value_store, fn data -> Map.put(data, key, value) end)
+    Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: value, ttl: nil}) end)
+    "+OK\r\n"
+  end
+
+  def process(%{command: "SET", args: [key, value, _, ttl]}) do
+    ttl_int = String.to_integer(ttl)
+    Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: value, ttl: ttl_int, created_at: DateTime.utc_now()}) end)
     "+OK\r\n"
   end
 
   def process(%{command: "GET", args: [key]}) do
-    # We need to retrieve the value from the map
-    value = Agent.get(:key_value_store, fn data -> Map.get(data,key) end)
+    value = Agent.get(:key_value_store, fn data -> data[key] end)
 
-    "$#{byte_size(value)}\r\n#{value}\r\n"
+    # if ttl is not nil, check if the key has expired
+    if value != nil and value[:ttl] != nil do
+      # Special case: px 0 means expire immediately
+      if value[:ttl] == 0 do
+        Agent.update(:key_value_store, fn data -> Map.delete(data, key) end)
+        "-ERR key not found\r\n"
+      else
+        if DateTime.diff(DateTime.utc_now(), value[:created_at], :millisecond) > value[:ttl] do
+          Agent.update(:key_value_store, fn data -> Map.delete(data, key) end)
+          "-ERR key not found\r\n"
+        else
+          IO.puts("With TTLValue: #{inspect(value)}")
+          "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
+        end
+      end
+    else
+      if value == nil do
+        "-ERR key not found\r\n"
+      else
+        IO.puts("Without TTLValue: #{inspect(value)}")
+        "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
+      end
+    end
   end
 
   def process(%{command: command, args: _args}) do
