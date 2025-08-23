@@ -128,11 +128,11 @@ defmodule CommandProcessor do
       # Special case: px 0 means expire immediately
       if value[:ttl] == 0 do
         Agent.update(:key_value_store, fn data -> Map.delete(data, key) end)
-        "-ERR key not found\r\n"
+        "$-1\r\n"
       else
         if DateTime.diff(DateTime.utc_now(), value[:created_at], :millisecond) > value[:ttl] do
           Agent.update(:key_value_store, fn data -> Map.delete(data, key) end)
-          "-ERR key not found\r\n"
+          "$-1\r\n"
         else
           IO.puts("With TTLValue: #{inspect(value)}")
           "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
@@ -140,7 +140,7 @@ defmodule CommandProcessor do
       end
     else
       if value == nil do
-        "-ERR key not found\r\n"
+        "$-1\r\n"
       else
         IO.puts("Without TTLValue: #{inspect(value)}")
         "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
