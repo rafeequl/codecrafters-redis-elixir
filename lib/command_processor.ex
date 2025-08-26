@@ -3,8 +3,6 @@ defmodule CommandProcessor do
   Command processor for Redis commands
   """
 
-
-
   @doc """
   Process a command and return the RESP response
   """
@@ -23,7 +21,11 @@ defmodule CommandProcessor do
 
   def process(%{command: "SET", args: [key, value, _, ttl]}) do
     ttl_int = String.to_integer(ttl)
-    Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: value, ttl: ttl_int, created_at: DateTime.utc_now()}) end)
+
+    Agent.update(:key_value_store, fn data ->
+      Map.put(data, key, %{value: value, ttl: ttl_int, created_at: DateTime.utc_now()})
+    end)
+
     "+OK\r\n"
   end
 

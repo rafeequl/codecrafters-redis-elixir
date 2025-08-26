@@ -32,9 +32,7 @@ defmodule TcpServer do
     accept_connections(socket)
   end
 
-  @doc """
-  Accept incoming connections
-  """
+
   defp accept_connections(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
 
@@ -45,9 +43,6 @@ defmodule TcpServer do
     accept_connections(socket)
   end
 
-  @doc """
-  Process client commands
-  """
   defp process_client_commands(client) do
     case :gen_tcp.recv(client, 0) do
       {:ok, data} ->
@@ -69,6 +64,7 @@ defmodule TcpServer do
       {:error, :closed} ->
         IO.puts("Client connection closed")
         :gen_tcp.close(client)
+
       {:error, reason} ->
         IO.puts("Error receiving data from client: #{reason}")
         :gen_tcp.close(client)
