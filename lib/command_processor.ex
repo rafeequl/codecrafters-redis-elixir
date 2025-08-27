@@ -94,8 +94,10 @@ defmodule CommandProcessor do
   def process(%{command: "LPUSH", args: [key | values]}) do
     existing_value = Agent.get(:key_value_store, fn data -> data[key] end)
     if existing_value == nil do
-      Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: values, ttl: nil, created_at: DateTime.utc_now()}) end)
-      ":#{length(Enum.reverse(values))}\r\n"
+      # For new list, reverse the values to put first item at front
+      reversed_values = Enum.reverse(values)
+      Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: reversed_values, ttl: nil, created_at: DateTime.utc_now()}) end)
+      ":#{length(values)}\r\n"
     else
       existing_list = existing_value[:value] || []
       new_list = Enum.reverse(values) ++ existing_list
@@ -121,18 +123,28 @@ defmodule CommandProcessor do
         start_idx = if start_idx < 0, do: length(list) + start_idx, else: start_idx
         stop_idx = if stop_idx < 0, do: length(list) + stop_idx, else: stop_idx
 
-        # Ensure indices are within bounds
-        start_idx = max(0, min(start_idx, length(list) - 1))
-        stop_idx = max(0, min(stop_idx, length(list) - 1))
+        # Check if range is valid (start <= stop)
+        if start_idx > stop_idx do
+          "*0\r\n"
+        else
+          # Check if both indices are out of bounds
+          if start_idx >= length(list) do
+            "*0\r\n"
+          else
+            # Ensure indices are within bounds
+            start_idx = max(0, min(start_idx, length(list) - 1))
+            stop_idx = max(0, min(stop_idx, length(list) - 1))
 
-        # Get the slice of the list
-        slice = Enum.slice(list, start_idx..stop_idx)
+            # Get the slice of the list
+            slice = Enum.slice(list, start_idx..stop_idx)
 
-        # Return as RESP array
-        "*#{length(slice)}\r\n" <>
-          Enum.map_join(slice, "", fn item ->
-            "$#{byte_size(item)}\r\n#{item}\r\n"
-          end)
+            # Return as RESP array
+            "*#{length(slice)}\r\n" <>
+              Enum.map_join(slice, "", fn item ->
+                "$#{byte_size(item)}\r\n#{item}\r\n"
+              end)
+          end
+        end
       else
         "*0\r\n"
       end
