@@ -42,9 +42,6 @@ defmodule RespParser do
       ["GET", key] ->
         [%{command: "GET", args: [key]}]
 
-      ["RPUSH", key, value] ->
-        [%{command: "RPUSH", args: [key, value]}]
-
       ["RPUSH", key | values] ->
         [%{command: "RPUSH", args: [key | values]}]
 
