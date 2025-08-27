@@ -68,6 +68,20 @@ defmodule CommandProcessor do
     end
   end
 
+  def process(%{command: "RPUSH", args: [key, value]}) do
+    existing_value = Agent.get(:key_value_store, fn data -> data[key] end)
+    if existing_value == nil do
+      Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: [value], ttl: nil, created_at: DateTime.utc_now()}) end)
+      ":#{length([value])}\r\n"
+    else
+      existing_list = existing_value[:value] || []
+      new_list = List.insert_at(existing_list, -1, value)
+      IO.puts("New list: #{inspect(new_list)}")
+      Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
+      ":#{length(new_list)}\r\n"
+    end
+  end
+
   def process(%{command: command, args: _args}) do
     IO.puts("Unknown command: #{command}")
     "-ERR unknown et dah '#{command}'\r\n"

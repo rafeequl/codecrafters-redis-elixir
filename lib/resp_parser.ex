@@ -38,6 +38,9 @@ defmodule RespParser do
       ["GET", key] ->
         [%{command: "GET", args: [key]}]
 
+      ["RPUSH", key, value] ->
+        [%{command: "RPUSH", args: [key, value]}]
+
       _ ->
         IO.puts("Unknown command: #{inspect(parts)}")
         []
