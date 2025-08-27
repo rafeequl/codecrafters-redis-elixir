@@ -18,16 +18,16 @@ defmodule CommandProcessor do
   end
 
   def process(%{command: "PING", args: []}) do
-    "+PONG\r\n"
+    RESPFormatter.simple_string("PONG")
   end
 
   def process(%{command: "ECHO", args: [message]}) do
-    "$#{byte_size(message)}\r\n#{message}\r\n"
+    RESPFormatter.bulk_string(message)
   end
 
   def process(%{command: "SET", args: [key, value]}) do
     Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: value, ttl: nil}) end)
-    "+OK\r\n"
+    RESPFormatter.simple_string("OK")
   end
 
   def process(%{command: "SET", args: [key, value, _, ttl]}) do
@@ -37,7 +37,7 @@ defmodule CommandProcessor do
       Map.put(data, key, %{value: value, ttl: ttl_int, created_at: DateTime.utc_now()})
     end)
 
-    "+OK\r\n"
+    RESPFormatter.simple_string("OK")
   end
 
   def process(%{command: "GET", args: [key]}) do
