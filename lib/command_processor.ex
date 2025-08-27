@@ -188,6 +188,23 @@ defmodule CommandProcessor do
     end
   end
 
+  def process(%{command: "LPOP", args: [key, count]}) do
+    count_int = String.to_integer(count)
+    if count_int > 0 do
+      list = Agent.get(:key_value_store, fn data -> data[key] end)
+      if list == nil do
+        RESPFormatter.null_bulk_string()
+      else
+        items_to_pop = Enum.take(list[:value], count_int)
+        new_list = list[:value] -- items_to_pop
+        Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
+        RESPFormatter.array(items_to_pop)
+      end
+    else
+      RESPFormatter.empty_array()
+    end
+  end
+
   def process(%{command: "FLUSHDB", args: []}) do
     Agent.update(:key_value_store, fn _ -> %{} end)
     RESPFormatter.simple_string("OK")

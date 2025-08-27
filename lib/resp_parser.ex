@@ -65,6 +65,9 @@ defmodule RespParser do
       ["LPOP", key] ->
         [%{command: "LPOP", args: [key]}]
 
+      ["LPOP", key, count] ->
+        [%{command: "LPOP", args: [key, count]}]
+
       ["FLUSHDB"] ->
         [%{command: "FLUSHDB", args: []}]
 
