@@ -158,4 +158,29 @@ defmodule RedisIntegrationTest do
     {:ok, llen_response} = Redix.command(conn, ["LLEN", "non_empty_list"])
     assert llen_response == 3
   end
+
+  test "lpop command - empty list", %{conn: conn} do
+    # Test LPOP on empty list
+    {:ok, lpop_response} = Redix.command(conn, ["LPOP", "empty_list"])
+    assert lpop_response == nil
+  end
+
+  test "lpop command - non-empty list", %{conn: conn} do
+    # Test LPOP on non-empty list
+    {:ok, _} = Redix.command(conn, ["RPUSH", "non_empty_list", "item1", "item2", "item3"])
+    {:ok, lpop_response} = Redix.command(conn, ["LPOP", "non_empty_list"])
+    assert lpop_response == "item1"
+  end
+
+  test "lpop command - non-empty list remove item", %{conn: conn} do
+    # Test LPOP on non-empty list
+    {:ok, _} = Redix.command(conn, ["RPUSH", "non_empty_list", "item1", "item2", "item3"])
+    {:ok, _} = Redix.command(conn, ["LPOP", "non_empty_list"])
+
+    # Test the remaining list
+    {:ok, lrange_response} = Redix.command(conn, ["LRANGE", "non_empty_list", "0", "-1"])
+    assert lrange_response == ["item2", "item3"]
+
+  end
+
 end

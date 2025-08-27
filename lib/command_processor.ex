@@ -176,6 +176,18 @@ defmodule CommandProcessor do
     end
   end
 
+  def process(%{command: "LPOP", args: [key]}) do
+    list = Agent.get(:key_value_store, fn data -> data[key] end)
+    if list == nil do
+      RESPFormatter.null_bulk_string()
+    else
+      first_item = hd(list[:value])
+      new_list = tl(list[:value])
+      Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
+      RESPFormatter.bulk_string(first_item)
+    end
+  end
+
   def process(%{command: "FLUSHDB", args: []}) do
     Agent.update(:key_value_store, fn _ -> %{} end)
     RESPFormatter.simple_string("OK")
