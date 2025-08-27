@@ -99,6 +99,39 @@ defmodule CommandProcessor do
     end
   end
 
+  # Process LRANGE and return the list of values
+  def process(%{command: "LRANGE", args: [key, start, stop]}) do
+    value = Agent.get(:key_value_store, fn data -> data[key] end)
+    # check if value is present and is a list
+    if value == nil do
+      "$-1\r\n"
+    else
+      if is_list(value[:value]) do
+        list = value[:value] || []
+        start_idx = String.to_integer(start)
+        stop_idx = String.to_integer(stop)
+
+        # Handle negative indices (count from end)
+        start_idx = if start_idx < 0, do: length(list) + start_idx, else: start_idx
+        stop_idx = if stop_idx < 0, do: length(list) + stop_idx, else: stop_idx
+
+        # Ensure indices are within bounds
+        start_idx = max(0, min(start_idx, length(list) - 1))
+        stop_idx = max(0, min(stop_idx, length(list) - 1))
+
+        # Get the slice of the list
+        slice = Enum.slice(list, start_idx..stop_idx)
+
+        # Return as RESP array
+        "*#{length(slice)}\r\n" <>
+          Enum.map_join(slice, "", fn item ->
+            "$#{byte_size(item)}\r\n#{item}\r\n"
+          end)
+      else
+        "$-1\r\n"
+      end
+    end
+  end
 
   def process(%{command: command, args: _args}) do
     IO.puts("Unknown command: #{command}")

@@ -44,6 +44,9 @@ defmodule RespParser do
       ["RPUSH", key | values] ->
         [%{command: "RPUSH", args: [key | values]}]
 
+      ["LRANGE", key, start, stop] ->
+        [%{command: "LRANGE", args: [key, start, stop]}]
+
       _ ->
         IO.puts("Unknown command: #{inspect(parts)}")
         []
