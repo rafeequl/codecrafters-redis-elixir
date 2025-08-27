@@ -52,11 +52,17 @@ defmodule TcpServer do
         commands = RespParser.parse(data)
         IO.puts("Parsed commands: #{inspect(commands)}")
 
-        # Process each command
-        Enum.each(commands, fn command ->
-          response = CommandProcessor.process(command)
-          :gen_tcp.send(client, response)
-        end)
+        # Process each command or send error if no commands parsed
+        if Enum.empty?(commands) do
+          # Send error response for unknown/unparseable commands
+          :gen_tcp.send(client, "-ERR unknown command\r\n")
+        else
+          # Process each command
+          Enum.each(commands, fn command ->
+            response = CommandProcessor.process(command)
+            :gen_tcp.send(client, response)
+          end)
+        end
 
         # Continue reading more commands from the same connection
         process_client_commands(client)

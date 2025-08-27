@@ -6,6 +6,17 @@ defmodule CommandProcessor do
   @doc """
   Process a command and return the RESP response
   """
+  def process(%{command: "COMMAND", args: []}) do
+    # Return information about available commands
+    # This is typically sent by Redis CLI when it first connects
+    "*0\r\n"
+  end
+
+  def process(%{command: "COMMAND", args: ["DOCS"]}) do
+    # Handle COMMAND DOCS - return empty array
+    "*0\r\n"
+  end
+
   def process(%{command: "PING", args: []}) do
     "+PONG\r\n"
   end
@@ -59,6 +70,12 @@ defmodule CommandProcessor do
 
   def process(%{command: command, args: _args}) do
     IO.puts("Unknown command: #{command}")
-    "-ERR unknown command '#{command}'\r\n"
+    "-ERR unknown et dah '#{command}'\r\n"
+  end
+
+  # Catch-all for any other command format
+  def process(command) do
+    IO.puts("Invalid command format: #{inspect(command)}")
+    "-ERR invalid command format\r\n"
   end
 end

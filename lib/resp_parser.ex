@@ -17,6 +17,12 @@ defmodule RespParser do
     IO.puts("Parsed parts: #{inspect(parts)}")
 
     case parts do
+      ["COMMAND"] ->
+        [%{command: "COMMAND", args: []}]
+
+      ["COMMAND", "DOCS"] ->
+        [%{command: "COMMAND", args: ["DOCS"]}]
+
       ["PING"] ->
         [%{command: "PING", args: []}]
 
