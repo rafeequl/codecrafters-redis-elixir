@@ -19,6 +19,12 @@ defmodule TcpServer do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> {:ok, pid}
     end
+
+    # Start Agent for waiting queues (or get existing one if already started)
+    case Agent.start_link(fn -> %{} end, name: :waiting_queues) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+    end
   end
 
   @doc """

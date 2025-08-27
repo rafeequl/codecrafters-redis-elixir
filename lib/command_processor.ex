@@ -87,6 +87,10 @@ defmodule CommandProcessor do
     existing_value = Agent.get(:key_value_store, fn data -> data[key] end)
     if existing_value == nil do
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: values, ttl: nil, created_at: DateTime.utc_now()}) end)
+      # Notify waiting BLPOP clients if any
+      if length(values) > 0 do
+        notify_waiting_clients(key, hd(values))
+      end
       RESPFormatter.integer(length(values))
     else
       existing_list = existing_value[:value] || []
@@ -100,6 +104,12 @@ defmodule CommandProcessor do
       })
 
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
+
+      # Notify waiting BLPOP clients if the list was empty before
+      if existing_list == [] and length(values) > 0 do
+        notify_waiting_clients(key, hd(values))
+      end
+
       RESPFormatter.integer(length(new_list))
     end
   end
@@ -225,7 +235,7 @@ defmodule CommandProcessor do
       RESPFormatter.array([key, first_item])
     else
       # List is empty or doesn't exist - wait for item to be added
-      # Simple polling approach to simulate blocking
+      # Use a proper waiting queue system
       wait_for_item(key, String.to_integer(timeout))
     end
   end
@@ -239,11 +249,36 @@ defmodule CommandProcessor do
   end
 
   defp wait_for_item(key, timeout) do
-    # Use a more efficient polling approach with proper timeout tracking
-    wait_for_item(key, timeout, 0)
+    # Use a proper waiting queue system for multiple clients
+    if timeout == 0 do
+      # Wait indefinitely
+      wait_indefinitely(key)
+    else
+      # Wait with timeout
+      wait_with_timeout(key, timeout, 0)
+    end
   end
 
-  defp wait_for_item(key, timeout, elapsed) do
+  defp wait_indefinitely(key) do
+    # Add this process to the waiting queue for this key
+    add_to_waiting_queue(key, self())
+
+    # Wait for notification that an item is available
+    receive do
+      {:item_available, item} ->
+        # Remove from waiting queue
+        remove_from_waiting_queue(key, self())
+        # Return the item
+        RESPFormatter.array([key, item])
+      {:timeout} ->
+        # Remove from waiting queue
+        remove_from_waiting_queue(key, self())
+        # Return nil
+        RESPFormatter.null_bulk_string()
+    end
+  end
+
+  defp wait_with_timeout(key, timeout, elapsed) do
     # Check if we've exceeded the timeout
     if elapsed >= timeout * 1000 do
       # Timeout reached, return nil
@@ -254,7 +289,7 @@ defmodule CommandProcessor do
         nil ->
           # List doesn't exist, wait a bit and check again
           Process.sleep(50)
-          wait_for_item(key, timeout, elapsed + 50)
+          wait_with_timeout(key, timeout, elapsed + 50)
         list ->
           if length(list[:value]) > 0 do
             # Item was added, pop it
@@ -265,10 +300,39 @@ defmodule CommandProcessor do
           else
             # List exists but is empty, wait a bit and check again
             Process.sleep(50)
-            wait_for_item(key, timeout, elapsed + 50)
+            wait_with_timeout(key, timeout, elapsed + 50)
           end
       end
     end
+  end
+
+  defp add_to_waiting_queue(key, pid) do
+    Agent.update(:waiting_queues, fn queues ->
+      waiting_pids = Map.get(queues, key, [])
+      Map.put(queues, key, [pid | waiting_pids])
+    end)
+  end
+
+  defp remove_from_waiting_queue(key, pid) do
+    Agent.update(:waiting_queues, fn queues ->
+      waiting_pids = Map.get(queues, key, [])
+      filtered_pids = Enum.reject(waiting_pids, fn p -> p == pid end)
+      Map.put(queues, key, filtered_pids)
+    end)
+  end
+
+  defp notify_waiting_clients(key, item) do
+    Agent.get_and_update(:waiting_queues, fn queues ->
+      waiting_pids = Map.get(queues, key, [])
+      case waiting_pids do
+        [] -> {queues, queues}
+        [pid | rest] ->
+          # Send item to first waiting client
+          send(pid, {:item_available, item})
+          # Remove that client from the queue
+          {queues, Map.put(queues, key, rest)}
+      end
+    end)
   end
 
   # Catch-all for any other command format
