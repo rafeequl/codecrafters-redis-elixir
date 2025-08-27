@@ -7,7 +7,7 @@ defmodule Server do
   """
 
   use Application
-
+  alias CodecraftersRedis.Logging
   alias TcpServer
 
   @doc """
@@ -17,11 +17,20 @@ defmodule Server do
   It initializes the TCP server and key-value store.
   """
   def start(_type, _args) do
-    IO.puts("Initializing Redis server components...")
+    Logging.log_server_lifecycle("application_starting", %{
+      application: :codecrafters_redis,
+      environment: Mix.env()
+    })
 
     # Start the TCP server (which will also start the Agent)
     {:ok, _pid} = TcpServer.start(nil, nil)
-    IO.puts("Redis server components initialized successfully")
+
+    Logging.log_server_lifecycle("application_started", %{
+      application: :codecrafters_redis,
+      status: "success",
+      components: ["tcp_server", "key_value_store"]
+    })
+
     {:ok, self()}
   end
 
@@ -32,7 +41,10 @@ defmodule Server do
   This function is called automatically when the application stops.
   """
   def stop(_state) do
-    IO.puts("Shutting down Redis server...")
+    Logging.log_server_lifecycle("application_stopping", %{
+      application: :codecrafters_redis,
+      reason: "normal_shutdown"
+    })
     :ok
   end
 end

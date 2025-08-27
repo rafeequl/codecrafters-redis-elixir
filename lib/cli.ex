@@ -6,25 +6,40 @@ defmodule CLI do
   as an executable or with `mix run`.
   """
 
+  alias CodecraftersRedis.Logging
+
   @doc """
   Main entry point for the CLI application.
 
   Starts the Redis server application and keeps it running.
   """
   def main(_args) do
-    IO.puts("Starting Redis server...")
+    Logging.log_server_lifecycle("cli_startup", %{
+      version: "1.0.0",
+      environment: Mix.env()
+    })
 
     # Start the Server application
     case Application.ensure_all_started(:codecrafters_redis) do
       {:ok, _started} ->
-        IO.puts("Redis server started successfully on port 6379")
-        IO.puts("Press Ctrl+C to stop the server")
+        Logging.log_server_lifecycle("server_started", %{
+          port: 6379,
+          status: "success"
+        })
+
+        Logging.log_business_event("server_ready", %{
+          message: "Press Ctrl+C to stop the server",
+          port: 6379
+        })
 
         # Run forever
         Process.sleep(:infinity)
 
       {:error, reason} ->
-        IO.puts("Failed to start Redis server: #{inspect(reason)}")
+        Logging.log_error(reason, "server_startup_failed", %{
+          port: 6379,
+          error_type: "application_startup_error"
+        })
         System.halt(1)
     end
   end

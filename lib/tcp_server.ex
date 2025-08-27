@@ -3,6 +3,7 @@ defmodule TcpServer do
   Your implementation of a Redis server
   """
 
+  alias CodecraftersRedis.Logging
   alias RespParser
   alias CommandProcessor
 
@@ -25,7 +26,10 @@ defmodule TcpServer do
   """
   def listen() do
     # You can use print statements as follows for debugging, they'll be visible when running tests.
-    IO.puts("Logs from your program will appear here!")
+    Logging.log_server_lifecycle("tcp_server_listening", %{
+      port: 6379,
+      reuseaddr: true
+    })
 
     # Since the tester restarts your program quite often, setting SO_REUSEADDR
     # ensures that we don't run into 'Address already in use' errors
@@ -35,11 +39,17 @@ defmodule TcpServer do
 
       {:error, :eaddrinuse} ->
         # Port is already in use, server is already running
-        IO.puts("Port 6379 is already in use, server is already running")
+        Logging.log_warning("Port already in use", "port_conflict", %{
+          port: 6379,
+          reason: "address_already_in_use"
+        })
         :ok
 
       {:error, reason} ->
-        IO.puts("Failed to start server: #{reason}")
+        Logging.log_error(reason, "tcp_server_startup_failed", %{
+          port: 6379,
+          error_type: "socket_listen_error"
+        })
         :error
     end
   end
@@ -58,11 +68,17 @@ defmodule TcpServer do
   defp process_client_commands(client) do
     case :gen_tcp.recv(client, 0) do
       {:ok, data} ->
-        IO.puts("Raw data: #{inspect(data)}")
+        Logging.log_command_processing("raw_data_received", [data], %{
+          data_size: byte_size(data),
+          client_pid: inspect(client)
+        })
 
         # Parse RESP format to extract commands
         commands = RespParser.parse(data)
-        IO.puts("Parsed commands: #{inspect(commands)}")
+        Logging.log_command_processing("commands_parsed", commands, %{
+          command_count: length(commands),
+          client_pid: inspect(client)
+        })
 
         # Process each command or send error if no commands parsed
         if Enum.empty?(commands) do
@@ -80,11 +96,18 @@ defmodule TcpServer do
         process_client_commands(client)
 
       {:error, :closed} ->
-        IO.puts("Client connection closed")
+        Logging.log_client_connection("connection_closed", %{
+          ip: "unknown",
+          port: "unknown",
+          id: inspect(client)
+        })
         :gen_tcp.close(client)
 
       {:error, reason} ->
-        IO.puts("Error receiving data from client: #{reason}")
+        Logging.log_error(reason, "client_data_receive_error", %{
+          client_pid: inspect(client),
+          error_type: "tcp_recv_error"
+        })
         :gen_tcp.close(client)
     end
   end

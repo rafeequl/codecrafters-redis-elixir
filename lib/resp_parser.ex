@@ -3,8 +3,13 @@ defmodule RespParser do
   Simple RESP parser for basic commands
   """
 
+  alias CodecraftersRedis.Logging
+
   def parse(data) do
-    IO.puts("Raw data: #{inspect(data)}")
+    Logging.log_command_processing("resp_parsing_started", [data], %{
+      data_size: byte_size(data),
+      data_preview: String.slice(data, 0, 100)
+    })
 
     # Split by \r\n and filter out empty strings and length indicators
     # the first part is the command. Make the command uppercase
@@ -18,7 +23,10 @@ defmodule RespParser do
         String.upcase(part)
       end)
 
-    IO.puts("Parsed parts: #{inspect(parts)}")
+    Logging.log_command_processing("resp_parsing_completed", parts, %{
+      parts_count: length(parts),
+      command: List.first(parts)
+    })
 
     case parts do
       ["COMMAND"] ->
@@ -52,7 +60,10 @@ defmodule RespParser do
         [%{command: "LRANGE", args: [key, start, stop]}]
 
       _ ->
-        IO.puts("Unknown command: #{inspect(parts)}")
+        Logging.log_warning("Unknown command received", "unknown_command", %{
+          command_parts: parts,
+          data_original: data
+        })
         []
     end
   end

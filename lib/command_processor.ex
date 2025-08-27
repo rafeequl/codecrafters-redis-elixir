@@ -3,6 +3,8 @@ defmodule CommandProcessor do
   Command processor for Redis commands
   """
 
+  alias CodecraftersRedis.Logging
+
   def process(%{command: "COMMAND", args: []}) do
     # Return information about available commands
     # This is typically sent by Redis CLI when it first connects
@@ -59,7 +61,11 @@ defmodule CommandProcessor do
           Agent.update(:key_value_store, fn data -> Map.delete(data, key) end)
           "$-1\r\n"
         else
-          IO.puts("With TTLValue: #{inspect(value)}")
+          Logging.log_command_processing("get_with_ttl", [key], %{
+            key: key,
+            ttl_value: value[:ttl],
+            created_at: value[:created_at]
+          })
           "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
         end
       end
@@ -67,7 +73,10 @@ defmodule CommandProcessor do
       if value == nil do
         "$-1\r\n"
       else
-        IO.puts("Without TTLValue: #{inspect(value)}")
+        Logging.log_command_processing("get_without_ttl", [key], %{
+          key: key,
+          value_type: "no_ttl"
+        })
         "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
       end
     end
@@ -83,7 +92,12 @@ defmodule CommandProcessor do
       existing_list = existing_value[:value] || []
       # merge the existing list with values (which is a list)
       new_list = existing_list ++ values
-      IO.puts("New list: #{inspect(new_list)}")
+      Logging.log_command_processing("rpush_list_updated", [key | values], %{
+        key: key,
+        existing_count: length(existing_list),
+        new_values_count: length(values),
+        final_count: length(new_list)
+      })
 
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
       ":#{length(new_list)}\r\n"
@@ -101,7 +115,12 @@ defmodule CommandProcessor do
     else
       existing_list = existing_value[:value] || []
       new_list = Enum.reverse(values) ++ existing_list
-      IO.puts("New list: #{inspect(new_list)}")
+      Logging.log_command_processing("lpush_list_updated", [key | values], %{
+        key: key,
+        existing_count: length(existing_list),
+        new_values_count: length(values),
+        final_count: length(new_list)
+      })
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
       ":#{length(new_list)}\r\n"
     end
@@ -152,13 +171,19 @@ defmodule CommandProcessor do
   end
 
   def process(%{command: command, args: _args}) do
-    IO.puts("Unknown command: #{command}")
+    Logging.log_warning("Unknown command received", "unknown_command", %{
+      command: command,
+      command_type: "unrecognized"
+    })
     "-ERR unknown et dah '#{command}'\r\n"
   end
 
   # Catch-all for any other command format
   def process(command) do
-    IO.puts("Invalid command format: #{inspect(command)}")
+    Logging.log_warning("Invalid command format", "invalid_command_format", %{
+      command: command,
+      command_type: "malformed"
+    })
     "-ERR invalid command format\r\n"
   end
 end
