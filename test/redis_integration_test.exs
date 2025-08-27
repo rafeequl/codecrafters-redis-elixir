@@ -7,7 +7,7 @@ defmodule RedisIntegrationTest do
   use ExUnit.Case, async: false
 
   # Start the actual Redis server before testing
-  setup do
+  setup_all do
     # Start the Redis server
     {:ok, _pid} = Server.start(nil, nil)
 
@@ -18,6 +18,12 @@ defmodule RedisIntegrationTest do
     {:ok, conn} = Redix.start_link(host: "localhost", port: 6379)
 
     {:ok, conn: conn}
+  end
+
+  # after each test, flush the database
+  setup %{conn: conn} do
+    Redix.command(conn, ["FLUSHDB"])
+    :ok
   end
 
   test "ping command via Redix client", %{conn: conn} do
