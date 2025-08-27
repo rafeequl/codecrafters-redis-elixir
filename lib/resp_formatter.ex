@@ -18,6 +18,13 @@ defmodule RESPFormatter do
   end
 
   @doc """
+  Integer response for numbers
+  """
+  def integer(response) do
+    ":" <> Integer.to_string(response) <> "\r\n"
+  end
+
+  @doc """
   Simple error response for errors
   """
   def error(response) do

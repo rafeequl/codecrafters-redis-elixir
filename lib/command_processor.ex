@@ -170,6 +170,15 @@ defmodule CommandProcessor do
     end
   end
 
+  def process(%{command: "LLEN", args: [key]}) do
+    value = Agent.get(:key_value_store, fn data -> data[key] end)
+    if value == nil do
+      RESPFormatter.integer(0)
+    else
+      RESPFormatter.integer(length(value[:value]))
+    end
+  end
+
   def process(%{command: "FLUSHDB", args: []}) do
     Agent.update(:key_value_store, fn _ -> %{} end)
     RESPFormatter.simple_string("OK")

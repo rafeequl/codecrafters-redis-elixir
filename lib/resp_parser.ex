@@ -59,6 +59,9 @@ defmodule RespParser do
       ["LRANGE", key, start, stop] ->
         [%{command: "LRANGE", args: [key, start, stop]}]
 
+      ["LLEN", key] ->
+        [%{command: "LLEN", args: [key]}]
+
       ["FLUSHDB"] ->
         [%{command: "FLUSHDB", args: []}]
 

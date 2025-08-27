@@ -145,4 +145,17 @@ defmodule RedisIntegrationTest do
     {:ok, lrange_response} = Redix.command(conn, ["LRANGE", "empty_range_list", "5", "10"])
     assert lrange_response == []
   end
+
+  test "llen command - empty list", %{conn: conn} do
+    # Test LLEN on empty list
+    {:ok, llen_response} = Redix.command(conn, ["LLEN", "empty_list"])
+    assert llen_response == 0
+  end
+
+  test "llen command - non-empty list", %{conn: conn} do
+    # Test LLEN on non-empty list
+    {:ok, _} = Redix.command(conn, ["RPUSH", "non_empty_list", "item1", "item2", "item3"])
+    {:ok, llen_response} = Redix.command(conn, ["LLEN", "non_empty_list"])
+    assert llen_response == 3
+  end
 end
