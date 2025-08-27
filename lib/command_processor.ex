@@ -87,10 +87,7 @@ defmodule CommandProcessor do
     existing_value = Agent.get(:key_value_store, fn data -> data[key] end)
     if existing_value == nil do
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: values, ttl: nil, created_at: DateTime.utc_now()}) end)
-      # Notify waiting BLPOP clients if any
-      if length(values) > 0 do
-        notify_waiting_clients(key, hd(values))
-      end
+
       RESPFormatter.integer(length(values))
     else
       existing_list = existing_value[:value] || []
@@ -105,10 +102,7 @@ defmodule CommandProcessor do
 
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
 
-      # Notify waiting BLPOP clients if the list was empty before
-      if existing_list == [] and length(values) > 0 do
-        notify_waiting_clients(key, hd(values))
-      end
+
 
       RESPFormatter.integer(length(new_list))
     end
@@ -248,33 +242,37 @@ defmodule CommandProcessor do
     "-ERR unknown et dah '#{command}'\r\n"
   end
 
-  defp wait_for_item(key, timeout) do
-    # Use a proper waiting queue system for multiple clients
+    defp wait_for_item(key, timeout) do
+    # For now, use a simple polling approach that's compatible with the current architecture
+    # In a real Redis implementation, this would use proper blocking I/O
     if timeout == 0 do
-      # Wait indefinitely
-      wait_indefinitely(key)
+      # Wait indefinitely - poll every 100ms
+      wait_with_polling(key)
     else
       # Wait with timeout
       wait_with_timeout(key, timeout, 0)
     end
   end
 
-  defp wait_indefinitely(key) do
-    # Add this process to the waiting queue for this key
-    add_to_waiting_queue(key, self())
-
-    # Wait for notification that an item is available
-    receive do
-      {:item_available, item} ->
-        # Remove from waiting queue
-        remove_from_waiting_queue(key, self())
-        # Return the item
-        RESPFormatter.array([key, item])
-      {:timeout} ->
-        # Remove from waiting queue
-        remove_from_waiting_queue(key, self())
-        # Return nil
-        RESPFormatter.null_bulk_string()
+  defp wait_with_polling(key) do
+    # Simple polling approach for timeout = 0
+    case Agent.get(:key_value_store, fn data -> data[key] end) do
+      nil ->
+        # List doesn't exist, wait a bit and check again
+        Process.sleep(100)
+        wait_with_polling(key)
+      list ->
+        if length(list[:value]) > 0 do
+          # Item is available, pop it
+          first_item = hd(list[:value])
+          new_list = tl(list[:value])
+          Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
+          RESPFormatter.array([key, first_item])
+        else
+          # List exists but is empty, wait a bit and check again
+          Process.sleep(100)
+          wait_with_polling(key)
+        end
     end
   end
 
@@ -306,34 +304,7 @@ defmodule CommandProcessor do
     end
   end
 
-  defp add_to_waiting_queue(key, pid) do
-    Agent.update(:waiting_queues, fn queues ->
-      waiting_pids = Map.get(queues, key, [])
-      Map.put(queues, key, [pid | waiting_pids])
-    end)
-  end
 
-  defp remove_from_waiting_queue(key, pid) do
-    Agent.update(:waiting_queues, fn queues ->
-      waiting_pids = Map.get(queues, key, [])
-      filtered_pids = Enum.reject(waiting_pids, fn p -> p == pid end)
-      Map.put(queues, key, filtered_pids)
-    end)
-  end
-
-  defp notify_waiting_clients(key, item) do
-    Agent.get_and_update(:waiting_queues, fn queues ->
-      waiting_pids = Map.get(queues, key, [])
-      case waiting_pids do
-        [] -> {queues, queues}
-        [pid | rest] ->
-          # Send item to first waiting client
-          send(pid, {:item_available, item})
-          # Remove that client from the queue
-          {queues, Map.put(queues, key, rest)}
-      end
-    end)
-  end
 
   # Catch-all for any other command format
   def process(command) do
