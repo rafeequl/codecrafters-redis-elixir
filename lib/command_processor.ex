@@ -55,29 +55,29 @@ defmodule CommandProcessor do
       # Special case: px 0 means expire immediately
       if value[:ttl] == 0 do
         Agent.update(:key_value_store, fn data -> Map.delete(data, key) end)
-        "$-1\r\n"
+        RESPFormatter.simple_string("-1")
       else
         if DateTime.diff(DateTime.utc_now(), value[:created_at], :millisecond) > value[:ttl] do
           Agent.update(:key_value_store, fn data -> Map.delete(data, key) end)
-          "$-1\r\n"
+          RESPFormatter.null_bulk_string()
         else
           Logging.log_command_processing("get_with_ttl", [key], %{
             key: key,
             ttl_value: value[:ttl],
             created_at: value[:created_at]
           })
-          "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
+          RESPFormatter.bulk_string(value[:value])
         end
       end
     else
       if value == nil do
-        "$-1\r\n"
+        RESPFormatter.null_bulk_string()
       else
         Logging.log_command_processing("get_without_ttl", [key], %{
           key: key,
           value_type: "no_ttl"
         })
-        "$#{byte_size(value[:value])}\r\n#{value[:value]}\r\n"
+        RESPFormatter.bulk_string(value[:value])
       end
     end
   end
@@ -87,7 +87,7 @@ defmodule CommandProcessor do
     existing_value = Agent.get(:key_value_store, fn data -> data[key] end)
     if existing_value == nil do
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: values, ttl: nil, created_at: DateTime.utc_now()}) end)
-      ":#{length(values)}\r\n"
+      RESPFormatter.integer(length(values))
     else
       existing_list = existing_value[:value] || []
       # merge the existing list with values (which is a list)
@@ -100,7 +100,7 @@ defmodule CommandProcessor do
       })
 
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
-      ":#{length(new_list)}\r\n"
+      RESPFormatter.integer(length(new_list))
     end
   end
 
@@ -111,7 +111,7 @@ defmodule CommandProcessor do
       # For new list, reverse the values to put first item at front
       reversed_values = Enum.reverse(values)
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: reversed_values, ttl: nil, created_at: DateTime.utc_now()}) end)
-      ":#{length(values)}\r\n"
+      RESPFormatter.integer(length(values))
     else
       existing_list = existing_value[:value] || []
       new_list = Enum.reverse(values) ++ existing_list
@@ -122,7 +122,7 @@ defmodule CommandProcessor do
         final_count: length(new_list)
       })
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
-      ":#{length(new_list)}\r\n"
+      RESPFormatter.integer(length(new_list))
     end
   end
 
@@ -131,7 +131,7 @@ defmodule CommandProcessor do
     value = Agent.get(:key_value_store, fn data -> data[key] end)
     # check if value is present and is a list
     if value == nil do
-      "*0\r\n"
+      RESPFormatter.empty_array()
     else
       if is_list(value[:value]) do
         list = value[:value] || []
@@ -144,11 +144,11 @@ defmodule CommandProcessor do
 
         # Check if range is valid (start <= stop)
         if start_idx > stop_idx do
-          "*0\r\n"
+          RESPFormatter.empty_array()
         else
           # Check if both indices are out of bounds
           if start_idx >= length(list) do
-            "*0\r\n"
+            RESPFormatter.empty_array()
           else
             # Ensure indices are within bounds
             start_idx = max(0, min(start_idx, length(list) - 1))
@@ -158,10 +158,7 @@ defmodule CommandProcessor do
             slice = Enum.slice(list, start_idx..stop_idx)
 
             # Return as RESP array
-            "*#{length(slice)}\r\n" <>
-              Enum.map_join(slice, "", fn item ->
-                "$#{byte_size(item)}\r\n#{item}\r\n"
-              end)
+            RESPFormatter.array(slice)
           end
         end
       else
