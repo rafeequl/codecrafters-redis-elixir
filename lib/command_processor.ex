@@ -3,9 +3,6 @@ defmodule CommandProcessor do
   Command processor for Redis commands
   """
 
-  @doc """
-  Process a command and return the RESP response
-  """
   def process(%{command: "COMMAND", args: []}) do
     # Return information about available commands
     # This is typically sent by Redis CLI when it first connects
@@ -17,6 +14,14 @@ defmodule CommandProcessor do
     "*0\r\n"
   end
 
+  @doc """
+  Process PING command and return PONG response.
+
+  ## Examples
+
+      iex> CommandProcessor.process(%{command: "PING", args: []})
+      "+PONG\\r\\n"
+  """
   def process(%{command: "PING", args: []}) do
     RESPFormatter.simple_string("PONG")
   end
