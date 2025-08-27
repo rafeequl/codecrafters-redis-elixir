@@ -104,10 +104,10 @@ defmodule CommandProcessor do
     existing_value = Agent.get(:key_value_store, fn data -> data[key] end)
     if existing_value == nil do
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: values, ttl: nil, created_at: DateTime.utc_now()}) end)
-      ":#{length(values)}\r\n"
+      ":#{length(Enum.reverse(values))}\r\n"
     else
       existing_list = existing_value[:value] || []
-      new_list = values ++ existing_list
+      new_list = Enum.reverse(values) ++ existing_list
       IO.puts("New list: #{inspect(new_list)}")
       Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
       ":#{length(new_list)}\r\n"
