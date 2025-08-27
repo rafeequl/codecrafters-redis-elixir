@@ -203,7 +203,7 @@ defmodule RedisIntegrationTest do
       # Connect to the same Redis server
       case Redix.start_link(host: "localhost", port: 6379) do
         {:ok, blpop_conn} ->
-          case Redix.command(blpop_conn, ["BLPOP", "test_list", "5"]) do
+          case Redix.command(blpop_conn, ["BLPOP", "test_list", "0.5"]) do
             {:ok, result} ->
               Redix.stop(blpop_conn)
               send(parent, {:blpop_result, result})

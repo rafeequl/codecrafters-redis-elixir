@@ -229,8 +229,9 @@ defmodule CommandProcessor do
       RESPFormatter.array([key, first_item])
     else
       # List is empty or doesn't exist - wait for item to be added
-      # Use a proper waiting queue system
-      wait_for_item(key, String.to_integer(timeout))
+      # Timeout can be "1" or "1.0"
+      timeout_int = if String.contains?(timeout, "."), do: String.to_float(timeout), else: String.to_integer(timeout)
+      wait_for_item(key, timeout_int)
     end
   end
 
