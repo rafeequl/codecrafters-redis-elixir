@@ -104,7 +104,7 @@ defmodule CommandProcessor do
     value = Agent.get(:key_value_store, fn data -> data[key] end)
     # check if value is present and is a list
     if value == nil do
-      "$-1\r\n"
+      "*0\r\n"
     else
       if is_list(value[:value]) do
         list = value[:value] || []
@@ -128,7 +128,7 @@ defmodule CommandProcessor do
             "$#{byte_size(item)}\r\n#{item}\r\n"
           end)
       else
-        "$-1\r\n"
+        "*0\r\n"
       end
     end
   end
