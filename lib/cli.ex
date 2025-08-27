@@ -16,7 +16,7 @@ defmodule CLI do
   def main(_args) do
     Logging.log_server_lifecycle("cli_startup", %{
       version: "1.0.0",
-      environment: Mix.env()
+      environment: get_environment()
     })
 
     # Start the Server application
@@ -41,6 +41,14 @@ defmodule CLI do
           error_type: "application_startup_error"
         })
         System.halt(1)
+    end
+  end
+
+  defp get_environment do
+    if Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0) do
+      Mix.env()
+    else
+      :prod
     end
   end
 end

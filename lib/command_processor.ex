@@ -170,6 +170,11 @@ defmodule CommandProcessor do
     end
   end
 
+  def process(%{command: "FLUSHDB", args: []}) do
+    Agent.update(:key_value_store, fn _ -> %{} end)
+    RESPFormatter.simple_string("OK")
+  end
+
   def process(%{command: command, args: _args}) do
     Logging.log_warning("Unknown command received", "unknown_command", %{
       command: command,

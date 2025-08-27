@@ -19,7 +19,7 @@ defmodule Server do
   def start(_type, _args) do
     Logging.log_server_lifecycle("application_starting", %{
       application: :codecrafters_redis,
-      environment: Mix.env()
+      environment: get_environment()
     })
 
     # Start the TCP server (which will also start the Agent)
@@ -35,7 +35,6 @@ defmodule Server do
   end
 
   @doc """
-    {:ok, _pid} = TcpServer.start(nil, nil)
   Stops the Redis server application.
 
   This function is called automatically when the application stops.
@@ -46,5 +45,13 @@ defmodule Server do
       reason: "normal_shutdown"
     })
     :ok
+  end
+
+  defp get_environment do
+    if Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0) do
+      Mix.env()
+    else
+      :prod
+    end
   end
 end

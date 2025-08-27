@@ -59,6 +59,9 @@ defmodule RespParser do
       ["LRANGE", key, start, stop] ->
         [%{command: "LRANGE", args: [key, start, stop]}]
 
+      ["FLUSHDB"] ->
+        [%{command: "FLUSHDB", args: []}]
+
       _ ->
         Logging.log_warning("Unknown command received", "unknown_command", %{
           command_parts: parts,
