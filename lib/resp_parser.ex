@@ -7,11 +7,15 @@ defmodule RespParser do
     IO.puts("Raw data: #{inspect(data)}")
 
     # Split by \r\n and filter out empty strings and length indicators
+    # the first part is the command. Make the command uppercase
     parts =
       data
       |> String.split("\r\n")
       |> Enum.filter(fn part ->
         part != "" and not String.starts_with?(part, "*") and not String.starts_with?(part, "$")
+      end)
+      |> List.update_at(0, fn part ->
+        String.upcase(part)
       end)
 
     IO.puts("Parsed parts: #{inspect(parts)}")
@@ -43,6 +47,9 @@ defmodule RespParser do
 
       ["RPUSH", key | values] ->
         [%{command: "RPUSH", args: [key | values]}]
+
+      ["LPUSH", key | values] ->
+        [%{command: "LPUSH", args: [key | values]}]
 
       ["LRANGE", key, start, stop] ->
         [%{command: "LRANGE", args: [key, start, stop]}]
