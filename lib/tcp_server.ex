@@ -10,7 +10,9 @@ defmodule TcpServer do
   Start the TCP server
   """
   def start(_type, _args) do
+    # Start the TCP server
     Task.start(fn -> listen() end)
+
     # Start Agent to store data (or get existing one if already started)
     case Agent.start_link(fn -> %{} end, name: :key_value_store) do
       {:ok, pid} -> {:ok, pid}
