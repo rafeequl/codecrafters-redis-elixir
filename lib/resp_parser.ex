@@ -68,6 +68,15 @@ defmodule RespParser do
       ["LPOP", key, count] ->
         [%{command: "LPOP", args: [key, count]}]
 
+      ["BLPOP", key, timeout] ->
+        [%{command: "BLPOP", args: [key, timeout]}]
+
+      ["BLPOP" | args] when length(args) >= 2 ->
+        # Handle BLPOP with multiple lists: BLPOP list1 list2 ... timeout
+        timeout = List.last(args)
+        keys = Enum.drop(args, -1)
+        [%{command: "BLPOP", args: keys ++ [timeout]}]
+
       ["FLUSHDB"] ->
         [%{command: "FLUSHDB", args: []}]
 

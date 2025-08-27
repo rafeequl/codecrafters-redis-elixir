@@ -210,12 +210,65 @@ defmodule CommandProcessor do
     RESPFormatter.simple_string("OK")
   end
 
+  def process(%{command: "BLPOP", args: [key, timeout]}) do
+
+    IO.puts("DEBUG: BLPOP called with key=#{key}, timeout=#{timeout}")
+
+    # Check if list exists and has items
+    list = Agent.get(:key_value_store, fn data -> data[key] end)
+
+    if list != nil and length(list[:value]) > 0 do
+      # List has items, pop immediately
+      first_item = hd(list[:value])
+      new_list = tl(list[:value])
+      Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
+      RESPFormatter.array([key, first_item])
+    else
+      # List is empty or doesn't exist - wait for item to be added
+      # Simple polling approach to simulate blocking
+      wait_for_item(key, String.to_integer(timeout))
+    end
+  end
+
   def process(%{command: command, args: _args}) do
     Logging.log_warning("Unknown command received", "unknown_command", %{
       command: command,
       command_type: "unrecognized"
     })
     "-ERR unknown et dah '#{command}'\r\n"
+  end
+
+  defp wait_for_item(key, timeout) do
+    # Use a more efficient polling approach with proper timeout tracking
+    wait_for_item(key, timeout, 0)
+  end
+
+  defp wait_for_item(key, timeout, elapsed) do
+    # Check if we've exceeded the timeout
+    if elapsed >= timeout * 1000 do
+      # Timeout reached, return nil
+      RESPFormatter.null_bulk_string()
+    else
+      # Check if item was added
+      case Agent.get(:key_value_store, fn data -> data[key] end) do
+        nil ->
+          # List doesn't exist, wait a bit and check again
+          Process.sleep(50)
+          wait_for_item(key, timeout, elapsed + 50)
+        list ->
+          if length(list[:value]) > 0 do
+            # Item was added, pop it
+            first_item = hd(list[:value])
+            new_list = tl(list[:value])
+            Agent.update(:key_value_store, fn data -> Map.put(data, key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()}) end)
+            RESPFormatter.array([key, first_item])
+          else
+            # List exists but is empty, wait a bit and check again
+            Process.sleep(50)
+            wait_for_item(key, timeout, elapsed + 50)
+          end
+      end
+    end
   end
 
   # Catch-all for any other command format
