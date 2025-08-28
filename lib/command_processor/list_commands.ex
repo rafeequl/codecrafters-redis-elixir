@@ -163,8 +163,6 @@ defmodule CommandProcessor.ListCommands do
   Handle BLPOP command - block until an element is available to pop.
   """
   def blpop(%{command: "BLPOP", args: [key, timeout]}) do
-    IO.puts("DEBUG: BLPOP called with key=#{key}, timeout=#{timeout}")
-
     # Check if list exists and has items
     list = Store.get(key)
 
@@ -185,26 +183,62 @@ defmodule CommandProcessor.ListCommands do
   end
 
   # NEW: Helper functions for waiting queue management
-  defp add_to_waiting_queue(key, client_pid) do
-    current_queue = Process.get({:waiting_queue, key}) || []
-    Process.put({:waiting_queue, key}, [client_pid | current_queue])
-  end
+  # Use a simple map stored in the module to share waiting queues across processes
+  @waiting_queues :waiting_queues
 
-  defp get_waiting_queue(key) do
-    Process.get({:waiting_queue, key}) || []
-  end
-
-  defp remove_from_waiting_queue(key) do
-    current_queue = Process.get({:waiting_queue, key}) || []
-    case current_queue do
-      [] -> :ok
-      [_oldest_client | remaining_clients] ->
-        Process.put({:waiting_queue, key}, remaining_clients)
-        :ok
+  defp ensure_waiting_queues_table do
+    case :ets.info(@waiting_queues) do
+      :undefined ->
+        :ets.new(@waiting_queues, [:set, :public, :named_table])
+      _ ->
+        @waiting_queues
     end
   end
 
-  defp wait_for_wakeup(key, timeout) do
+  defp add_to_waiting_queue(key, client_pid) do
+    table = ensure_waiting_queues_table()
+    current_queue = case :ets.lookup(table, key) do
+      [{^key, queue}] -> queue
+      [] -> []
+    end
+    new_queue = [client_pid | current_queue]
+    :ets.insert(table, {key, new_queue})
+  end
+
+  defp get_waiting_queue(key) do
+    table = ensure_waiting_queues_table()
+    case :ets.lookup(table, key) do
+      [{^key, queue}] -> queue
+      [] -> []
+    end
+  end
+
+  defp remove_from_waiting_queue(key) do
+    table = ensure_waiting_queues_table()
+    case :ets.lookup(table, key) do
+      [{^key, queue}] ->
+        case queue do
+          [] -> :ok
+          [_oldest_client | remaining_clients] ->
+            :ets.insert(table, {key, remaining_clients})
+            :ok
+        end
+      [] -> :ok
+    end
+  end
+
+  # Remove a specific client from the waiting queue (for timeouts)
+  defp remove_client_from_waiting_queue(key, client_pid) do
+    table = ensure_waiting_queues_table()
+    case :ets.lookup(table, key) do
+      [{^key, queue}] ->
+        filtered_queue = Enum.reject(queue, fn pid -> pid == client_pid end)
+        :ets.insert(table, {key, filtered_queue})
+      [] -> :ok
+    end
+  end
+
+  defp wait_for_wakeup(key, timeout_ms) do
     receive do
       {:item_available, ^key} ->
         # Item is available, pop it immediately
@@ -218,20 +252,24 @@ defmodule CommandProcessor.ListCommands do
           # Something went wrong, return nil
           RESPFormatter.null_bulk_string()
         end
-    after timeout * 1000 ->
+    after timeout_ms ->
       # Timeout reached, remove self from waiting queue
-      remove_from_waiting_queue(key)
+      remove_client_from_waiting_queue(key, self())
       RESPFormatter.null_bulk_string()
     end
   end
 
   defp parse_timeout(timeout) do
-    if String.contains?(timeout, "."),
-      do: String.to_float(timeout),
-      else: String.to_integer(timeout)
+    if String.contains?(timeout, ".") do
+      # Convert float to milliseconds (e.g., "0.5" -> 500ms)
+      trunc(String.to_float(timeout) * 1000)
+    else
+      # Convert integer to milliseconds (e.g., "1" -> 1000ms)
+      String.to_integer(timeout) * 1000
+    end
   end
 
-  # NEW: Wake up the oldest waiting client when items are added
+    # NEW: Wake up the oldest waiting client when items are added
   defp wake_up_waiting_clients(key) do
     waiting_clients = get_waiting_queue(key)
     if length(waiting_clients) > 0 do
