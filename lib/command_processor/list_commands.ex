@@ -15,6 +15,8 @@ defmodule CommandProcessor.ListCommands do
 
     if existing_value == nil do
       Store.put(key, %{value: values, ttl: nil, created_at: DateTime.utc_now()})
+      # Check if any clients are waiting for this key
+      wake_up_waiting_clients(key)
       RESPFormatter.integer(length(values))
     else
       existing_list = existing_value[:value] || []
@@ -29,6 +31,8 @@ defmodule CommandProcessor.ListCommands do
       })
 
       Store.put(key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()})
+      # Check if any clients are waiting for this key
+      wake_up_waiting_clients(key)
       RESPFormatter.integer(length(new_list))
     end
   end
@@ -43,6 +47,8 @@ defmodule CommandProcessor.ListCommands do
       # For new list, reverse the values to put first item at front
       reversed_values = Enum.reverse(values)
       Store.put(key, %{value: reversed_values, ttl: nil, created_at: DateTime.utc_now()})
+      # Check if any clients are waiting for this key
+      wake_up_waiting_clients(key)
       RESPFormatter.integer(length(values))
     else
       existing_list = existing_value[:value] || []
@@ -56,6 +62,8 @@ defmodule CommandProcessor.ListCommands do
       })
 
       Store.put(key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()})
+      # Check if any clients are waiting for this key
+      wake_up_waiting_clients(key)
       RESPFormatter.integer(length(new_list))
     end
   end
@@ -167,80 +175,74 @@ defmodule CommandProcessor.ListCommands do
       Store.put(key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()})
       RESPFormatter.array([key, first_item])
     else
-      # List is empty or doesn't exist - wait for item to be added
-      # Timeout can be "1" or "1.0"
-      timeout_int =
-        if String.contains?(timeout, "."),
-          do: String.to_float(timeout),
-          else: String.to_integer(timeout)
+      # List is empty - add this client to waiting queue
+      add_to_waiting_queue(key, self())
 
-      wait_for_item(key, timeout_int)
+      # Wait for wakeup instead of polling
+      timeout_int = parse_timeout(timeout)
+      wait_for_wakeup(key, timeout_int)
     end
   end
 
-  # Private helper functions for blocking operations
+  # NEW: Helper functions for waiting queue management
+  defp add_to_waiting_queue(key, client_pid) do
+    current_queue = Process.get({:waiting_queue, key}) || []
+    Process.put({:waiting_queue, key}, [client_pid | current_queue])
+  end
 
-  defp wait_for_item(key, timeout) do
-    # For now, use a simple polling approach that's compatible with the current architecture
-    # In a real Redis implementation, this would use proper blocking I/O
-    if timeout == 0 do
-      # Wait indefinitely - poll every 100ms
-      wait_with_polling(key)
-    else
-      # Wait with timeout
-      wait_with_timeout(key, timeout, 0)
+  defp get_waiting_queue(key) do
+    Process.get({:waiting_queue, key}) || []
+  end
+
+  defp remove_from_waiting_queue(key) do
+    current_queue = Process.get({:waiting_queue, key}) || []
+    case current_queue do
+      [] -> :ok
+      [_oldest_client | remaining_clients] ->
+        Process.put({:waiting_queue, key}, remaining_clients)
+        :ok
     end
   end
 
-  defp wait_with_polling(key) do
-    # Simple polling approach for timeout = 0
-    case Store.get(key) do
-      nil ->
-        # List doesn't exist, wait a bit and check again
-        Process.sleep(100)
-        wait_with_polling(key)
-
-      list ->
-        if length(list[:value]) > 0 do
-          # Item is available, pop it
+  defp wait_for_wakeup(key, timeout) do
+    receive do
+      {:item_available, ^key} ->
+        # Item is available, pop it immediately
+        list = Store.get(key)
+        if list != nil and length(list[:value]) > 0 do
           first_item = hd(list[:value])
           new_list = tl(list[:value])
           Store.put(key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()})
           RESPFormatter.array([key, first_item])
         else
-          # List exists but is empty, wait a bit and check again
-          Process.sleep(100)
-          wait_with_polling(key)
+          # Something went wrong, return nil
+          RESPFormatter.null_bulk_string()
         end
-    end
-  end
-
-  defp wait_with_timeout(key, timeout, elapsed) do
-    # Check if we've exceeded the timeout
-    if elapsed >= timeout * 1000 do
-      # Timeout reached, return nil
+    after timeout * 1000 ->
+      # Timeout reached, remove self from waiting queue
+      remove_from_waiting_queue(key)
       RESPFormatter.null_bulk_string()
-    else
-      # Check if item was added
-      case Store.get(key) do
-        nil ->
-          # List doesn't exist, wait a bit and check again
-          Process.sleep(50)
-          wait_with_timeout(key, timeout, elapsed + 50)
-
-        list ->
-          if length(list[:value]) > 0 do
-            # Item was added, pop it
-            first_item = hd(list[:value])
-            new_list = tl(list[:value])
-            Store.put(key, %{value: new_list, ttl: nil, created_at: DateTime.utc_now()})
-            RESPFormatter.array([key, first_item])
-          else
-            # List exists but is empty, wait a bit and check again
-            Process.sleep(50)
-            wait_with_timeout(key, timeout, elapsed + 50)
-          end
-      end
     end
   end
+
+  defp parse_timeout(timeout) do
+    if String.contains?(timeout, "."),
+      do: String.to_float(timeout),
+      else: String.to_integer(timeout)
+  end
+
+  # NEW: Wake up the oldest waiting client when items are added
+  defp wake_up_waiting_clients(key) do
+    waiting_clients = get_waiting_queue(key)
+    if length(waiting_clients) > 0 do
+      # Wake up the oldest waiting client (first in queue)
+      oldest_waiting_client = hd(waiting_clients)
+      Process.send(oldest_waiting_client, {:item_available, key}, [])
+
+      # Remove that client from waiting queue
+      remove_from_waiting_queue(key)
+    end
+  end
+
+
 end
