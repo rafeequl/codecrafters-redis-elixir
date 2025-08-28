@@ -73,7 +73,9 @@ defmodule RedisIntegrationTest do
     {:ok, _} = Redix.command(conn, ["LPUSH", "existing_list", "original"])
 
     # Add more items to existing list
-    {:ok, lpush_response} = Redix.command(conn, ["LPUSH", "existing_list", "new_item1", "new_item2"])
+    {:ok, lpush_response} =
+      Redix.command(conn, ["LPUSH", "existing_list", "new_item1", "new_item2"])
+
     assert lpush_response == 3
 
     # Verify the list has all items in correct order
@@ -83,7 +85,9 @@ defmodule RedisIntegrationTest do
 
   test "rpush command - new list", %{conn: conn} do
     # Test RPUSH command creating a new list
-    {:ok, rpush_response} = Redix.command(conn, ["RPUSH", "test_rlist", "item1", "item2", "item3"])
+    {:ok, rpush_response} =
+      Redix.command(conn, ["RPUSH", "test_rlist", "item1", "item2", "item3"])
+
     assert rpush_response == 3
 
     # Verify the list was created with correct order (RPUSH adds to end)
@@ -96,7 +100,9 @@ defmodule RedisIntegrationTest do
     {:ok, _} = Redix.command(conn, ["RPUSH", "existing_rlist", "original"])
 
     # Add more items to existing list
-    {:ok, rpush_response} = Redix.command(conn, ["RPUSH", "existing_rlist", "new_item1", "new_item2"])
+    {:ok, rpush_response} =
+      Redix.command(conn, ["RPUSH", "existing_rlist", "new_item1", "new_item2"])
+
     assert rpush_response == 3
 
     # Verify the list has all items in correct order
@@ -187,7 +193,6 @@ defmodule RedisIntegrationTest do
     {:ok, _} = Redix.command(conn, ["RPUSH", "non_empty_list", "item1", "item2", "item3"])
     {:ok, _} = Redix.command(conn, ["LPOP", "non_empty_list", "2"])
 
-
     # Test the remaining list
     {:ok, lrange_response} = Redix.command(conn, ["LRANGE", "non_empty_list", "0", "-1"])
     assert lrange_response == ["item3"]
@@ -199,6 +204,7 @@ defmodule RedisIntegrationTest do
 
     # Start BLPOP in a separate process to avoid blocking the test
     parent = self()
+
     spawn(fn ->
       # Connect to the same Redis server
       case Redix.start_link(host: "localhost", port: 6379) do
@@ -207,10 +213,12 @@ defmodule RedisIntegrationTest do
             {:ok, result} ->
               Redix.stop(blpop_conn)
               send(parent, {:blpop_result, result})
+
             {:error, error} ->
               Redix.stop(blpop_conn)
               send(parent, {:blpop_error, error})
           end
+
         {:error, error} ->
           send(parent, {:blpop_error, error})
       end
@@ -224,13 +232,16 @@ defmodule RedisIntegrationTest do
     {:ok, _} = Redix.command(conn, ["RPUSH", "test_list", "test_item"])
 
     # Wait for BLPOP to complete and get the result
-    result = receive do
-      {:blpop_result, result} -> result
-      {:blpop_error, error} ->
-        flunk("BLPOP failed with error: #{inspect(error)}")
-    after
-      1000 -> flunk("BLPOP timed out waiting for result")
-    end
+    result =
+      receive do
+        {:blpop_result, result} ->
+          result
+
+        {:blpop_error, error} ->
+          flunk("BLPOP failed with error: #{inspect(error)}")
+      after
+        1000 -> flunk("BLPOP timed out waiting for result")
+      end
 
     # The result should be the item that was added
     assert result == ["test_list", "test_item"]

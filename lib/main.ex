@@ -44,6 +44,7 @@ defmodule Server do
       application: :codecrafters_redis,
       reason: "normal_shutdown"
     })
+
     :ok
   end
 

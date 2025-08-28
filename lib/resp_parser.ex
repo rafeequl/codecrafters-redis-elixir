@@ -85,6 +85,7 @@ defmodule RespParser do
           command_parts: parts,
           data_original: data
         })
+
         []
     end
   end

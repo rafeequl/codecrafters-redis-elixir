@@ -61,5 +61,4 @@ defmodule RESPFormatter do
   def error(response) do
     "-" <> response <> "\r\n"
   end
-
 end

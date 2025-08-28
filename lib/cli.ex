@@ -40,6 +40,7 @@ defmodule CLI do
           port: 6379,
           error_type: "application_startup_error"
         })
+
         System.halt(1)
     end
   end

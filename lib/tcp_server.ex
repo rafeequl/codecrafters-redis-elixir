@@ -19,8 +19,6 @@ defmodule TcpServer do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> {:ok, pid}
     end
-
-
   end
 
   @doc """
@@ -45,6 +43,7 @@ defmodule TcpServer do
           port: 6379,
           reason: "address_already_in_use"
         })
+
         :ok
 
       {:error, reason} ->
@@ -52,10 +51,10 @@ defmodule TcpServer do
           port: 6379,
           error_type: "socket_listen_error"
         })
+
         :error
     end
   end
-
 
   defp accept_connections(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
@@ -77,6 +76,7 @@ defmodule TcpServer do
 
         # Parse RESP format to extract commands
         commands = RespParser.parse(data)
+
         Logging.log_command_processing("commands_parsed", commands, %{
           command_count: length(commands),
           client_pid: inspect(client)
@@ -103,6 +103,7 @@ defmodule TcpServer do
           port: "unknown",
           id: inspect(client)
         })
+
         :gen_tcp.close(client)
 
       {:error, reason} ->
@@ -110,6 +111,7 @@ defmodule TcpServer do
           client_pid: inspect(client),
           error_type: "tcp_recv_error"
         })
+
         :gen_tcp.close(client)
     end
   end
