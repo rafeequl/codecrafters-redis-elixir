@@ -255,7 +255,7 @@ defmodule CommandProcessor.ListCommands do
     after timeout_ms ->
       # Timeout reached, remove self from waiting queue
       remove_client_from_waiting_queue(key, self())
-      RESPFormatter.empty_array()
+      RESPFormatter.null_bulk_string()
     end
   end
 
