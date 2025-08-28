@@ -250,12 +250,12 @@ defmodule CommandProcessor.ListCommands do
           RESPFormatter.array([key, first_item])
         else
           # Something went wrong, return nil
-          RESPFormatter.null_bulk_string()
+          RESPFormatter.empty_array()
         end
     after timeout_ms ->
       # Timeout reached, remove self from waiting queue
       remove_client_from_waiting_queue(key, self())
-      RESPFormatter.null_bulk_string()
+      RESPFormatter.empty_array()
     end
   end
 
