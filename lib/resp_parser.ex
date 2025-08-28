@@ -41,6 +41,9 @@ defmodule RespParser do
       ["ECHO", message] ->
         [%{command: "ECHO", args: [message]}]
 
+      ["TYPE", key] ->
+        [%{command: "TYPE", args: [key]}]
+
       ["SET", key, value] ->
         [%{command: "SET", args: [key, value]}]
 

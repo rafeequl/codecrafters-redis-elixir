@@ -16,6 +16,10 @@ defmodule CommandProcessor do
     CoreCommands.echo(%{command: "ECHO", args: [message]})
   end
 
+  def process(%{command: "TYPE", args: [key]}) do
+    CoreCommands.type(%{command: "TYPE", args: [key]})
+  end
+
   def process(%{command: "COMMAND", args: []}) do
     AdminCommands.command(%{command: "COMMAND", args: []})
   end

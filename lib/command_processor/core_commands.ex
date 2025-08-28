@@ -5,6 +5,7 @@ defmodule CommandProcessor.CoreCommands do
   """
 
   alias RESPFormatter
+  alias Store
 
   @doc """
   Handle PING command - return PONG response.
@@ -28,5 +29,14 @@ defmodule CommandProcessor.CoreCommands do
   """
   def echo(%{command: "ECHO", args: [message]}) do
     RESPFormatter.bulk_string(message)
+  end
+
+  def type(%{command: "TYPE", args: [message]}) do
+    value = Store.get(message)
+    if value == nil do
+      RESPFormatter.simple_string("none")
+    else
+      RESPFormatter.simple_string("string")
+    end
   end
 end

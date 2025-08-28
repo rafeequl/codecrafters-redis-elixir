@@ -42,6 +42,12 @@ defmodule RedisIntegrationTest do
     assert response == "hello"
   end
 
+  test "type command via Redix client", %{conn: conn} do
+    Redix.command(conn, ["SET", "foo", "bar"])
+    {:ok, response} = Redix.command(conn,  ["TYPE", "foo"])
+    assert response == "string"
+  end
+
   test "set and get commands - found scenario", %{conn: conn} do
     # Test SET command
     {:ok, set_response} = Redix.command(conn, ["SET", "test_key", "test_value"])
