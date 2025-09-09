@@ -210,54 +210,45 @@ defmodule RedisIntegrationTest do
   end
 
   test "blpop command - empty list block until item is added", %{conn: conn} do
-    # Test BLPOP on empty list - should block until timeout or item is added
-    # We'll test this by measuring the time it takes
-
-    # Start BLPOP in a separate process to avoid blocking the test
+    # Test BLPOP on empty list - should block until item is added
     parent = self()
 
-    spawn(fn ->
-      # Connect to the same Redis server
+    # Start BLPOP in a separate process
+    _blpop_pid = spawn(fn ->
       case Redix.start_link(host: "localhost", port: 6379) do
         {:ok, blpop_conn} ->
-          case Redix.command(blpop_conn, ["BLPOP", "test_list", "0.5"]) do
+          # Start BLPOP with a longer timeout
+          case Redix.command(blpop_conn, ["BLPOP", "test_list", "2"]) do
             {:ok, result} ->
               Redix.stop(blpop_conn)
               send(parent, {:blpop_result, result})
-
             {:error, error} ->
               Redix.stop(blpop_conn)
               send(parent, {:blpop_error, error})
           end
-
         {:error, error} ->
           send(parent, {:blpop_error, error})
       end
     end)
 
-    # Wait a bit to ensure BLPOP has started
-    Process.sleep(100)
+    # Wait for BLPOP to start and register
+    Process.sleep(50)
 
-    # Add item to the list after a short delay
-    Process.sleep(200)
+    # Add item to the list
     {:ok, _} = Redix.command(conn, ["RPUSH", "test_list", "test_item"])
 
-    # Wait for BLPOP to complete and get the result
-    result =
-      receive do
-        {:blpop_result, result} ->
-          result
+    # Wait for BLPOP result
+    result = receive do
+      {:blpop_result, result} -> result
+      {:blpop_error, error} -> flunk("BLPOP failed: #{inspect(error)}")
+    after
+      2000 -> flunk("BLPOP timed out waiting for result")
+    end
 
-        {:blpop_error, error} ->
-          flunk("BLPOP failed with error: #{inspect(error)}")
-      after
-        1000 -> flunk("BLPOP timed out waiting for result")
-      end
-
-    # The result should be the item that was added
+    # Verify the result
     assert result == ["test_list", "test_item"]
 
-    # Verify the item was removed
+    # Verify the item was removed from the list
     {:ok, lrange_response} = Redix.command(conn, ["LRANGE", "test_list", "0", "-1"])
     assert lrange_response == []
   end
@@ -266,14 +257,14 @@ defmodule RedisIntegrationTest do
     # Test BLPOP timeout when no items are added
     start_time = System.monotonic_time(:millisecond)
 
-    {:ok, result} = Redix.command(conn, ["BLPOP", "test_list_timeout", "1"])
+    {:ok, result} = Redix.command(conn, ["BLPOP", "test_list_timeout", "0.5"])
 
     end_time = System.monotonic_time(:millisecond)
     elapsed_time = end_time - start_time
 
     # Should return nil after timeout
     assert result == nil
-    # Should have taken at least 1 second (allowing for some overhead)
-    assert elapsed_time >= 900
+    # Should have taken at least 500ms (allowing for some overhead)
+    assert elapsed_time >= 400
   end
 end

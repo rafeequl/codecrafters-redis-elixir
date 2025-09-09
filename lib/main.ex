@@ -9,6 +9,7 @@ defmodule Server do
   use Application
   alias CodecraftersRedis.Logging
   alias TcpServer
+  alias CommandProcessor.ListCommandsServer
 
   @doc """
   Starts the Redis server application.
@@ -22,13 +23,21 @@ defmodule Server do
       environment: get_environment()
     })
 
+    # Start the List Commands GenServer
+    case ListCommandsServer.start_link([]) do
+      {:ok, _list_server_pid} ->
+        :ok
+      {:error, {:already_started, _pid}} ->
+        :ok
+    end
+
     # Start the TCP server (which will also start the Agent)
     {:ok, _pid} = TcpServer.start(nil, nil)
 
     Logging.log_server_lifecycle("application_started", %{
       application: :codecrafters_redis,
       status: "success",
-      components: ["tcp_server", "key_value_store"]
+      components: ["list_commands_server", "tcp_server", "key_value_store"]
     })
 
     {:ok, self()}

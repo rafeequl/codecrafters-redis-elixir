@@ -6,7 +6,7 @@ defmodule CommandProcessor do
   alias CommandProcessor.AdminCommands
   alias CommandProcessor.CoreCommands
   alias CommandProcessor.StringCommands
-  alias CommandProcessor.ListCommands
+  alias CommandProcessor.ListCommandsServer
 
   def process(%{command: "PING", args: []}) do
     CoreCommands.ping(%{command: "PING", args: []})
@@ -46,33 +46,33 @@ defmodule CommandProcessor do
 
   # process RPUSH with multiple values
   def process(%{command: "RPUSH", args: [key | values]}) do
-    ListCommands.rpush(%{command: "RPUSH", args: [key | values]})
+    ListCommandsServer.rpush(key, values)
   end
 
   # process LPUSH with multiple values
   def process(%{command: "LPUSH", args: [key | values]}) do
-    ListCommands.lpush(%{command: "LPUSH", args: [key | values]})
+    ListCommandsServer.lpush(key, values)
   end
 
   # Process LRANGE and return the list of values
   def process(%{command: "LRANGE", args: [key, start, stop]}) do
-    ListCommands.lrange(%{command: "LRANGE", args: [key, start, stop]})
+    ListCommandsServer.lrange(key, start, stop)
   end
 
   def process(%{command: "LLEN", args: [key]}) do
-    ListCommands.llen(%{command: "LLEN", args: [key]})
+    ListCommandsServer.llen(key)
   end
 
   def process(%{command: "LPOP", args: [key]}) do
-    ListCommands.lpop(%{command: "LPOP", args: [key]})
+    ListCommandsServer.lpop(key)
   end
 
   def process(%{command: "LPOP", args: [key, count]}) do
-    ListCommands.lpop(%{command: "LPOP", args: [key, count]})
+    ListCommandsServer.lpop(key, count)
   end
 
   def process(%{command: "BLPOP", args: [key, timeout]}) do
-    ListCommands.blpop(%{command: "BLPOP", args: [key, timeout]})
+    ListCommandsServer.blpop(key, timeout)
   end
 
   def process(%{command: command, args: _args}) do
