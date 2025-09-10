@@ -52,34 +52,34 @@ defmodule CommandProcessor.ListCommandsServer do
     # Try to get an item immediately first
     case GenServer.call(__MODULE__, {:blpop_immediate, key}) do
       :empty ->
-        # List is empty, wait with timeout
-        wait_for_item(key, timeout_ms)
+        # List is empty, wait with timeout using polling
+        wait_for_item_with_timeout(key, timeout_ms)
       result ->
         result
     end
   end
 
-  # Wait for an item to become available
-  defp wait_for_item(key, timeout_ms) do
+  # Wait for an item with timeout using polling
+  defp wait_for_item_with_timeout(key, timeout_ms) do
     start_time = :os.system_time(:millisecond)
 
-    # Poll the list until timeout or item becomes available
-    wait_loop(key, start_time, timeout_ms)
+    # Poll until timeout or item becomes available
+    wait_loop_with_timeout(key, start_time, timeout_ms)
   end
 
-  defp wait_loop(key, start_time, timeout_ms) do
+  defp wait_loop_with_timeout(key, start_time, timeout_ms) do
     elapsed = :os.system_time(:millisecond) - start_time
 
     if elapsed >= timeout_ms do
       # Timeout reached
-      RESPFormatter.null_bulk_string()
+      RESPFormatter.null_array()
     else
       # Check if item is available
       case GenServer.call(__MODULE__, {:blpop_immediate, key}) do
         :empty ->
           # Still empty, wait a bit and try again
           Process.sleep(10)
-          wait_loop(key, start_time, timeout_ms)
+          wait_loop_with_timeout(key, start_time, timeout_ms)
         result ->
           result
       end
@@ -194,6 +194,7 @@ defmodule CommandProcessor.ListCommandsServer do
     end
   end
 
+
   def handle_call(:flush_all, _from, _state) do
     {:reply, "OK", %{lists: %{}, waiting_queues: %{}}}
   end
@@ -205,8 +206,14 @@ defmodule CommandProcessor.ListCommandsServer do
       # Convert float to milliseconds (e.g., "0.5" -> 500ms)
       trunc(String.to_float(timeout) * 1000)
     else
-      # Convert integer to milliseconds (e.g., "1" -> 1000ms)
-      String.to_integer(timeout) * 1000
+      timeout_int = String.to_integer(timeout)
+      if timeout_int == 0 do
+        # timeout=0 means wait forever in Redis
+        :infinity
+      else
+        # Convert integer to milliseconds (e.g., "1" -> 1000ms)
+        timeout_int * 1000
+      end
     end
   end
 

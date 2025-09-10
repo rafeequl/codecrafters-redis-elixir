@@ -32,6 +32,13 @@ defmodule RESPFormatter do
   end
 
   @doc """
+  Null array response for BLPOP timeout
+  """
+  def null_array do
+    "*-1\r\n"
+  end
+
+  @doc """
   Array response header with count of elements
   """
   def array_header(count) do
