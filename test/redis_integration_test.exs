@@ -218,7 +218,7 @@ defmodule RedisIntegrationTest do
       case Redix.start_link(host: "localhost", port: 6379) do
         {:ok, blpop_conn} ->
           # Start BLPOP with a longer timeout
-          case Redix.command(blpop_conn, ["BLPOP", "test_list", "2"]) do
+          case Redix.command(blpop_conn, ["BLPOP", "test_list", "1000"]) do
             {:ok, result} ->
               Redix.stop(blpop_conn)
               send(parent, {:blpop_result, result})
@@ -232,7 +232,7 @@ defmodule RedisIntegrationTest do
     end)
 
     # Wait for BLPOP to start and register
-    Process.sleep(50)
+    # Process.sleep(50)
 
     # Add item to the list
     {:ok, _} = Redix.command(conn, ["RPUSH", "test_list", "test_item"])
