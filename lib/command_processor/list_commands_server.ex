@@ -50,7 +50,7 @@ defmodule CommandProcessor.ListCommandsServer do
     timeout_ms = parse_timeout(timeout)
 
     # Try to get an item immediately first
-    case GenServer.call(__MODULE__, {:blpop_immediate, key}) do
+    case GenServer.call(__MODULE__, {:blpop_atomic, key, self()}) do
       :empty ->
         # Register waiting client and wait for wakeup
         wait_for_wakeup(key, timeout_ms)
@@ -60,25 +60,29 @@ defmodule CommandProcessor.ListCommandsServer do
   end
 
   defp wait_for_wakeup(key, timeout_ms, start_time \\ System.system_time(:millisecond)) do
-    GenServer.call(__MODULE__, {:register_waiting_client, key, self()})
+    # Register client immediately when starting to wait with timeout
+    case GenServer.call(__MODULE__, {:register_waiting_client, key, self()}, 1000) do
+      "OK" ->
+        remaining_time = calculate_remaining_time(timeout_ms, start_time)
 
-    remaining_time = calculate_remaining_time(timeout_ms, start_time)
-
-    receive do
-      {:item_available, ^key} ->
-        # Item is available, try to pop it immediately
-        case GenServer.call(__MODULE__, {:blpop_immediate, key}) do
-          :empty ->
-            # Another client got it first, continue waiting
-            wait_for_wakeup(key, timeout_ms, start_time)
-          result ->
-            GenServer.call(__MODULE__, {:remove_waiting_client, key, self()})
-            result
+        receive do
+          {:item_available, ^key} ->
+            # Item is available, try to pop it atomically
+            case GenServer.call(__MODULE__, {:blpop_atomic, key, self()}) do
+              :empty ->
+                # Another client got it first, continue waiting
+                wait_for_wakeup(key, timeout_ms, start_time)
+              result ->
+                result
+            end
+        after remaining_time ->
+          # Timeout reached, remove client from waiting queue
+          GenServer.call(__MODULE__, {:remove_waiting_client, key, self()})
+          RESPFormatter.null_array()
         end
-    after remaining_time ->
-      # Timeout reached, remove client from waiting queue
-      GenServer.call(__MODULE__, {:remove_waiting_client, key, self()})
-      RESPFormatter.null_array()
+      _ ->
+        # Registration failed, return timeout
+        RESPFormatter.null_array()
     end
   end
 
@@ -105,6 +109,13 @@ defmodule CommandProcessor.ListCommandsServer do
       state
     end
   end
+
+  defp remove_waiting_client_from_state(state, key, client_pid) do
+    waiting_queue = Map.get(state.waiting_queues, key, [])
+    new_waiting_queue = waiting_queue -- [client_pid]
+    %{state | waiting_queues: Map.put(state.waiting_queues, key, new_waiting_queue)}
+  end
+
 
   # GenServer callbacks
   def handle_call({:rpush, key, values}, _from, state) do
@@ -207,14 +218,21 @@ defmodule CommandProcessor.ListCommandsServer do
     end
   end
 
-  def handle_call({:blpop_immediate, key}, _from, state) do
+  def handle_call({:blpop_atomic, key, client_pid}, _from, state) do
     list = Map.get(state.lists, key, [])
 
     if length(list) > 0 do
-      # List has items, pop immediately
+      # List has items, pop immediately and remove client from waiting queue
       [first_item | remaining_items] = list
       new_state = %{state | lists: Map.put(state.lists, key, remaining_items)}
-      {:reply, RESPFormatter.array([key, first_item]), new_state}
+
+      # Remove this client from waiting queue if it was waiting
+      updated_state = remove_waiting_client_from_state(new_state, key, client_pid)
+
+      # Don't wake up the next client here - let RPUSH/LPUSH handle it
+      final_state = updated_state
+
+      {:reply, RESPFormatter.array([key, first_item]), final_state}
     else
       # List is empty
       {:reply, :empty, state}
