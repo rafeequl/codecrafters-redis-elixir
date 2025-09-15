@@ -54,68 +54,11 @@ defmodule CommandProcessor.ListCommandsServer do
       :empty ->
         # Register waiting client and wait for wakeup
         wait_for_wakeup(key, timeout_ms)
+
       result ->
         result
     end
   end
-
-  defp wait_for_wakeup(key, timeout_ms, start_time \\ System.system_time(:millisecond)) do
-    # Register client immediately when starting to wait with timeout
-    case GenServer.call(__MODULE__, {:register_waiting_client, key, self()}, 1000) do
-      "OK" ->
-        remaining_time = calculate_remaining_time(timeout_ms, start_time)
-
-        receive do
-          {:item_available, ^key} ->
-            # Item is available, try to pop it atomically
-            case GenServer.call(__MODULE__, {:blpop_atomic, key, self()}) do
-              :empty ->
-                # Another client got it first, continue waiting
-                wait_for_wakeup(key, timeout_ms, start_time)
-              result ->
-                result
-            end
-        after remaining_time ->
-          # Timeout reached, remove client from waiting queue
-          GenServer.call(__MODULE__, {:remove_waiting_client, key, self()})
-          RESPFormatter.null_array()
-        end
-      _ ->
-        # Registration failed, return timeout
-        RESPFormatter.null_array()
-    end
-  end
-
-  defp calculate_remaining_time(:infinity, _start_time), do: :infinity
-  defp calculate_remaining_time(timeout_ms, start_time) do
-    elapsed_time = System.system_time(:millisecond) - start_time
-    max(0, timeout_ms - elapsed_time)
-  end
-
-  defp waking_up_waiting_client(key, state) do
-    waiting_clients = Map.get(state.waiting_queues, key, [])
-
-    if length(waiting_clients) > 0 do
-      IO.puts("Waking up waiting client")
-      [oldest_client | remaining_clients] = waiting_clients
-
-      # send wake-up message to oldest client
-      send(oldest_client, {:item_available, key})
-
-      # remove oldest client from waiting queue
-      %{state | waiting_queues: Map.put(state.waiting_queues, key, remaining_clients)}
-    else
-      IO.puts("No waiting clients")
-      state
-    end
-  end
-
-  defp remove_waiting_client_from_state(state, key, client_pid) do
-    waiting_queue = Map.get(state.waiting_queues, key, [])
-    new_waiting_queue = waiting_queue -- [client_pid]
-    %{state | waiting_queues: Map.put(state.waiting_queues, key, new_waiting_queue)}
-  end
-
 
   # GenServer callbacks
   def handle_call({:rpush, key, values}, _from, state) do
@@ -127,7 +70,6 @@ defmodule CommandProcessor.ListCommandsServer do
     # wake up waiting clients
     updated_state = waking_up_waiting_client(key, new_state)
     IO.puts("Updated state after waking up clients: #{inspect(updated_state)}")
-
 
     {:reply, RESPFormatter.integer(length(new_list)), updated_state}
   end
@@ -234,22 +176,15 @@ defmodule CommandProcessor.ListCommandsServer do
 
       {:reply, RESPFormatter.array([key, first_item]), final_state}
     else
-      # List is empty
-      {:reply, :empty, state}
+      # To make it atomic, we need to register the client in the waiting queue
+      updated_state = register_waiting_client(state, key, client_pid)
+
+      {:reply, :empty, updated_state}
     end
   end
 
-  def handle_call({:register_waiting_client, key, client_pid}, _from, state) do
-    waiting_queue = Map.get(state.waiting_queues, key, [])
-    new_waiting_queue = waiting_queue ++ [client_pid]
-    new_state = %{state | waiting_queues: Map.put(state.waiting_queues, key, new_waiting_queue)}
-    {:reply, "OK", new_state}
-  end
-
   def handle_call({:remove_waiting_client, key, client_pid}, _from, state) do
-    waiting_queue = Map.get(state.waiting_queues, key, [])
-    new_waiting_queue = waiting_queue -- [client_pid]
-    new_state = %{state | waiting_queues: Map.put(state.waiting_queues, key, new_waiting_queue)}
+    new_state = remove_waiting_client_from_state(state, key, client_pid)
     {:reply, "OK", new_state}
   end
 
@@ -257,6 +192,65 @@ defmodule CommandProcessor.ListCommandsServer do
     {:reply, "OK", %{lists: %{}, waiting_queues: %{}}}
   end
 
+  defp register_waiting_client(state, key, client_pid) do
+    waiting_queue = Map.get(state.waiting_queues, key, [])
+    new_waiting_queue = waiting_queue ++ [client_pid]
+    new_state = %{state | waiting_queues: Map.put(state.waiting_queues, key, new_waiting_queue)}
+    new_state
+  end
+
+  defp waking_up_waiting_client(key, state) do
+    waiting_clients = Map.get(state.waiting_queues, key, [])
+
+    if length(waiting_clients) > 0 do
+      IO.puts("Waking up waiting client")
+      [oldest_client | remaining_clients] = waiting_clients
+
+      # send wake-up message to oldest client
+      send(oldest_client, {:item_available, key})
+
+      # remove oldest client from waiting queue
+      %{state | waiting_queues: Map.put(state.waiting_queues, key, remaining_clients)}
+    else
+      IO.puts("No waiting clients")
+      state
+    end
+  end
+
+  defp remove_waiting_client_from_state(state, key, client_pid) do
+    waiting_queue = Map.get(state.waiting_queues, key, [])
+    new_waiting_queue = waiting_queue -- [client_pid]
+    %{state | waiting_queues: Map.put(state.waiting_queues, key, new_waiting_queue)}
+  end
+
+  defp wait_for_wakeup(key, timeout_ms, start_time \\ System.system_time(:millisecond)) do
+    remaining_time = calculate_remaining_time(timeout_ms, start_time)
+
+    receive do
+      {:item_available, ^key} ->
+        # Item is available, try to pop it atomically
+        case GenServer.call(__MODULE__, {:blpop_atomic, key, self()}) do
+          :empty ->
+            # Another client got it first, continue waiting
+            wait_for_wakeup(key, timeout_ms, start_time)
+
+          result ->
+            result
+        end
+    after
+      remaining_time ->
+        # Timeout reached, remove client from waiting queue
+        GenServer.call(__MODULE__, {:remove_waiting_client, key, self()})
+        RESPFormatter.null_array()
+    end
+  end
+
+  defp calculate_remaining_time(:infinity, _start_time), do: :infinity
+
+  defp calculate_remaining_time(timeout_ms, start_time) do
+    elapsed_time = System.system_time(:millisecond) - start_time
+    max(0, timeout_ms - elapsed_time)
+  end
 
   # Helper function to parse timeout string to milliseconds
   defp parse_timeout(timeout) do
@@ -265,6 +259,7 @@ defmodule CommandProcessor.ListCommandsServer do
       trunc(String.to_float(timeout) * 1000)
     else
       timeout_int = String.to_integer(timeout)
+
       if timeout_int == 0 do
         # timeout=0 means wait forever in Redis
         :infinity
@@ -274,6 +269,4 @@ defmodule CommandProcessor.ListCommandsServer do
       end
     end
   end
-
-
 end
