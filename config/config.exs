@@ -5,7 +5,7 @@ import Config
 # Configure the Logger
 config :logger,
   # Set the default log level
-  level: :info,
+  level: :debug,
 
   # Configure console backend
   backends: [:console],

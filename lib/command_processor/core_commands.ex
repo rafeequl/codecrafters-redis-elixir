@@ -6,7 +6,7 @@ defmodule CommandProcessor.CoreCommands do
 
   alias RESPFormatter
   alias Store
-
+  alias CommandProcessor.StreamCommandServer
   @doc """
   Handle PING command - return PONG response.
 
@@ -32,11 +32,22 @@ defmodule CommandProcessor.CoreCommands do
   end
 
   def type(%{command: "TYPE", args: [message]}) do
-    value = Store.get(message)
-    if value == nil do
-      RESPFormatter.simple_string("none")
-    else
-      RESPFormatter.simple_string("string")
+    # we need to check to Store as well as the StreamCommandServer
+    # if it exists in the StreamCommandServer, return "stream"
+    # if not then check the Store
+    # if it exists in the Store, return "string"
+    # if not then return "none"
+
+    cond do
+      StreamCommandServer.exists?(message) ->
+        RESPFormatter.simple_string("stream")
+
+      Store.get(message) != nil ->
+        RESPFormatter.simple_string("string")
+
+      true ->
+        RESPFormatter.simple_string("none")
     end
+
   end
 end

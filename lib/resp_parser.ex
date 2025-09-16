@@ -80,6 +80,11 @@ defmodule RespParser do
         keys = Enum.drop(args, -1)
         [%{command: "BLPOP", args: keys ++ [timeout]}]
 
+      # Value pairs can be many for example :
+      # XADD stream_key 1526919030474-0 temperature 36 humidity 95
+      ["XADD", stream_key, id | field_value_pairs] ->
+        [%{command: "XADD", args: [stream_key, id | field_value_pairs]}]
+
       ["FLUSHDB"] ->
         [%{command: "FLUSHDB", args: []}]
 

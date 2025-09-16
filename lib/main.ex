@@ -10,6 +10,7 @@ defmodule Server do
   alias CodecraftersRedis.Logging
   alias TcpServer
   alias CommandProcessor.ListCommandsServer
+  alias CommandProcessor.StreamCommandServer
 
   @doc """
   Starts the Redis server application.
@@ -26,6 +27,14 @@ defmodule Server do
     # Start the List Commands GenServer
     case ListCommandsServer.start_link([]) do
       {:ok, _list_server_pid} ->
+        :ok
+      {:error, {:already_started, _pid}} ->
+        :ok
+    end
+
+    # Start the Stream Commands GenServer
+    case StreamCommandServer.start_link([]) do
+      {:ok, _stream_server_pid} ->
         :ok
       {:error, {:already_started, _pid}} ->
         :ok

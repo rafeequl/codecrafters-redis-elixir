@@ -7,6 +7,7 @@ defmodule CommandProcessor do
   alias CommandProcessor.CoreCommands
   alias CommandProcessor.StringCommands
   alias CommandProcessor.ListCommandsServer
+  alias CommandProcessor.StreamCommandServer
 
   def process(%{command: "PING", args: []}) do
     CoreCommands.ping(%{command: "PING", args: []})
@@ -73,6 +74,10 @@ defmodule CommandProcessor do
 
   def process(%{command: "BLPOP", args: [key, timeout]}) do
     ListCommandsServer.blpop(key, timeout)
+  end
+
+  def process(%{command: "XADD", args: [stream_key, id | field_value_pairs]}) do
+    StreamCommandServer.xadd(stream_key, id, field_value_pairs)
   end
 
   def process(%{command: command, args: _args}) do
