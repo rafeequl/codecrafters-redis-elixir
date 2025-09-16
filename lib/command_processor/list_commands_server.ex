@@ -47,6 +47,9 @@ defmodule CommandProcessor.ListCommandsServer do
 
   # BLPOP - block until an element is available to pop, timeout in seconds
   def blpop(key, timeout) do
+    # log timestamp when the blpop is called
+    IO.puts(" ====> #{inspect(self())} - Blpop called at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
+
     timeout_ms = parse_timeout(timeout)
 
     # Try to get an item immediately first
@@ -62,16 +65,19 @@ defmodule CommandProcessor.ListCommandsServer do
 
   # GenServer callbacks
   def handle_call({:rpush, key, values}, _from, state) do
+    IO.puts(" ====> #{inspect(self())} - Rpush called with key: #{key} and values: #{inspect(values)} at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
     existing_list = Map.get(state.lists, key, [])
     new_list = existing_list ++ values
 
     new_state = %{state | lists: Map.put(state.lists, key, new_list)}
 
-    # wake up waiting clients
-    updated_state = waking_up_waiting_client(key, new_state)
-    IO.puts("Updated state after waking up clients: #{inspect(updated_state)}")
+    # Return immediately without waking up clients synchronously
+    IO.puts("====> #{inspect(self())} - Updated state immediately: #{inspect(new_state)} at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
 
-    {:reply, RESPFormatter.integer(length(new_list)), updated_state}
+    # Wake up clients asynchronously after returning response
+    GenServer.cast(__MODULE__, {:wake_up_clients, key})
+
+    {:reply, RESPFormatter.integer(length(new_list)), new_state}
   end
 
   def handle_call({:lpush, key, values}, _from, state) do
@@ -80,11 +86,11 @@ defmodule CommandProcessor.ListCommandsServer do
 
     new_state = %{state | lists: Map.put(state.lists, key, new_list)}
 
-    # wake up waiting clients
-    updated_state = waking_up_waiting_client(key, new_state)
-    IO.puts("Updated state after waking up clients: #{inspect(updated_state)}")
+    # Wake up waiting clients asynchronously to avoid blocking
+    GenServer.cast(__MODULE__, {:wake_up_clients, key})
+    IO.puts("Updated state after waking up clients: #{inspect(new_state)}")
 
-    {:reply, RESPFormatter.integer(length(new_list)), updated_state}
+    {:reply, RESPFormatter.integer(length(new_list)), new_state}
   end
 
   def handle_call({:lpop, key}, _from, state) do
@@ -163,7 +169,10 @@ defmodule CommandProcessor.ListCommandsServer do
   def handle_call({:blpop_atomic, key, client_pid}, _from, state) do
     list = Map.get(state.lists, key, [])
 
+    IO.puts(" ====> #{inspect(client_pid)} - #{inspect(list)} - blpop atomic called att #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
+
     if length(list) > 0 do
+      IO.puts(" ====> #{inspect(client_pid)} - #{inspect(list)} - List has items, pop immediately and remove client from waiting queue")
       # List has items, pop immediately and remove client from waiting queue
       [first_item | remaining_items] = list
       new_state = %{state | lists: Map.put(state.lists, key, remaining_items)}
@@ -173,6 +182,8 @@ defmodule CommandProcessor.ListCommandsServer do
 
       # Don't wake up the next client here - let RPUSH/LPUSH handle it
       final_state = updated_state
+
+      IO.puts(" ====> #{inspect(client_pid)} - #{inspect(final_state)} - Final state after popping item at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
 
       {:reply, RESPFormatter.array([key, first_item]), final_state}
     else
@@ -192,7 +203,14 @@ defmodule CommandProcessor.ListCommandsServer do
     {:reply, "OK", %{lists: %{}, waiting_queues: %{}}}
   end
 
+  def handle_cast({:wake_up_clients, key}, state) do
+    # Wake up waiting clients asynchronously
+    updated_state = waking_up_waiting_client(key, state)
+    {:noreply, updated_state}
+  end
+
   defp register_waiting_client(state, key, client_pid) do
+    IO.puts(" ====> #{inspect(self())} - Registering waiting client #{inspect(client_pid)} at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
     waiting_queue = Map.get(state.waiting_queues, key, [])
     new_waiting_queue = waiting_queue ++ [client_pid]
     new_state = %{state | waiting_queues: Map.put(state.waiting_queues, key, new_waiting_queue)}
@@ -203,8 +221,8 @@ defmodule CommandProcessor.ListCommandsServer do
     waiting_clients = Map.get(state.waiting_queues, key, [])
 
     if length(waiting_clients) > 0 do
-      IO.puts("Waking up waiting client")
       [oldest_client | remaining_clients] = waiting_clients
+      IO.puts(" ====> Waking up waiting client #{inspect(oldest_client)} at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
 
       # send wake-up message to oldest client
       send(oldest_client, {:item_available, key})
@@ -212,7 +230,7 @@ defmodule CommandProcessor.ListCommandsServer do
       # remove oldest client from waiting queue
       %{state | waiting_queues: Map.put(state.waiting_queues, key, remaining_clients)}
     else
-      IO.puts("No waiting clients")
+      IO.puts(" ====> No waiting clients")
       state
     end
   end
@@ -224,10 +242,14 @@ defmodule CommandProcessor.ListCommandsServer do
   end
 
   defp wait_for_wakeup(key, timeout_ms, start_time \\ System.system_time(:millisecond)) do
+    IO.puts(" ====> Waiting for wakeup at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
+
     remaining_time = calculate_remaining_time(timeout_ms, start_time)
 
     receive do
       {:item_available, ^key} ->
+        IO.puts(" ====> Item available at #{inspect(DateTime.utc_now() |> DateTime.to_unix(:millisecond))}")
+
         # Item is available, try to pop it atomically
         case GenServer.call(__MODULE__, {:blpop_atomic, key, self()}) do
           :empty ->

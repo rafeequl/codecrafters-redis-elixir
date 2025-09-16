@@ -267,4 +267,151 @@ defmodule RedisIntegrationTest do
     # Should have taken at least 500ms (allowing for some overhead)
     assert elapsed_time >= 400
   end
+
+  test "blpop race condition - multiple clients simultaneous", %{conn: conn} do
+    # This test mimics the exact race condition from the logs:
+    # - Client-1 and Client-2 call BLPOP simultaneously
+    # - Client-3 calls RPUSH shortly after
+    # - Only one client should get the item, others should block
+
+    parent = self()
+    results = []
+
+    # Start Client-1 BLPOP
+    client1_pid = spawn(fn ->
+      case Redix.start_link(host: "localhost", port: 6379) do
+        {:ok, client1_conn} ->
+          case Redix.command(client1_conn, ["BLPOP", "race_test_list", "5"]) do
+            {:ok, result} ->
+              Redix.stop(client1_conn)
+              send(parent, {:client1_result, result})
+            {:error, error} ->
+              Redix.stop(client1_conn)
+              send(parent, {:client1_error, error})
+          end
+        {:error, error} ->
+          send(parent, {:client1_error, error})
+      end
+    end)
+
+    # Start Client-2 BLPOP (almost simultaneously)
+    client2_pid = spawn(fn ->
+      case Redix.start_link(host: "localhost", port: 6379) do
+        {:ok, client2_conn} ->
+          case Redix.command(client2_conn, ["BLPOP", "race_test_list", "5"]) do
+            {:ok, result} ->
+              Redix.stop(client2_conn)
+              send(parent, {:client2_result, result})
+            {:error, error} ->
+              Redix.stop(client2_conn)
+              send(parent, {:client2_error, error})
+          end
+        {:error, error} ->
+          send(parent, {:client2_error, error})
+      end
+    end)
+
+    # Small delay to ensure both BLPOP clients are registered
+    Process.sleep(10)
+
+    # Client-3 RPUSH (this should wake up one of the waiting clients)
+    {:ok, rpush_result} = Redix.command(conn, ["RPUSH", "race_test_list", "race_item"])
+    assert rpush_result == 1
+
+    # Collect results from both clients
+    client1_result = receive do
+      {:client1_result, result} -> {:ok, result}
+      {:client1_error, error} -> {:error, error}
+    after
+      3000 -> {:error, :timeout}
+    end
+
+    client2_result = receive do
+      {:client2_result, result} -> {:ok, result}
+      {:client2_error, error} -> {:error, error}
+    after
+      3000 -> {:error, :timeout}
+    end
+
+    # Verify results
+    case {client1_result, client2_result} do
+      # Expected: One client gets the item, other times out
+      {{:ok, ["race_test_list", "race_item"]}, {:error, :timeout}} ->
+        # This is the correct behavior
+        :ok
+      {{:error, :timeout}, {:ok, ["race_test_list", "race_item"]}} ->
+        # This is also correct behavior
+        :ok
+      # Unexpected: Both clients get responses (race condition)
+      {{:ok, result1}, {:ok, result2}} ->
+        flunk("Race condition detected! Both clients received responses: #{inspect(result1)}, #{inspect(result2)}")
+      # Unexpected: Both clients timeout
+      {{:error, :timeout}, {:error, :timeout}} ->
+        flunk("Both clients timed out - RPUSH may not have woken up any clients")
+      # Other unexpected combinations
+      {result1, result2} ->
+        flunk("Unexpected results: client1=#{inspect(result1)}, client2=#{inspect(result2)}")
+    end
+
+    # Verify the list is empty (item was consumed)
+    {:ok, remaining_items} = Redix.command(conn, ["LRANGE", "race_test_list", "0", "-1"])
+    assert remaining_items == []
+  end
+
+  test "blpop race condition - multiple items multiple clients", %{conn: conn} do
+    # Test with multiple items to ensure proper FIFO behavior
+    parent = self()
+
+    # Start 3 BLPOP clients
+    clients = for i <- 1..3 do
+      spawn(fn ->
+        case Redix.start_link(host: "localhost", port: 6379) do
+          {:ok, client_conn} ->
+            case Redix.command(client_conn, ["BLPOP", "multi_race_list", "5"]) do
+              {:ok, result} ->
+                Redix.stop(client_conn)
+                send(parent, {:client_result, i, result})
+              {:error, error} ->
+                Redix.stop(client_conn)
+                send(parent, {:client_error, i, error})
+            end
+          {:error, error} ->
+            send(parent, {:client_error, i, error})
+        end
+      end)
+    end
+
+    # Small delay to ensure all BLPOP clients are registered
+    Process.sleep(20)
+
+    # Add 2 items (should wake up 2 clients)
+    {:ok, _} = Redix.command(conn, ["RPUSH", "multi_race_list", "item1"])
+    {:ok, _} = Redix.command(conn, ["RPUSH", "multi_race_list", "item2"])
+
+    # Collect results
+    results = for i <- 1..3 do
+      receive do
+        {:client_result, client_id, result} -> {client_id, {:ok, result}}
+        {:client_error, client_id, error} -> {client_id, {:error, error}}
+      after
+        3000 -> {i, {:timeout, :timeout}}
+      end
+    end
+
+    # Verify exactly 2 clients got items and 1 timed out
+    success_count = Enum.count(results, fn {_id, result} ->
+      match?({:ok, ["multi_race_list", _]}, result)
+    end)
+
+    timeout_count = Enum.count(results, fn {_id, result} ->
+      match?({:timeout, :timeout}, result)
+    end)
+
+    assert success_count == 2, "Expected 2 clients to get items, got #{success_count}. Results: #{inspect(results)}"
+    assert timeout_count == 1, "Expected 1 client to timeout, got #{timeout_count}. Results: #{inspect(results)}"
+
+    # Verify the list is empty
+    {:ok, remaining_items} = Redix.command(conn, ["LRANGE", "multi_race_list", "0", "-1"])
+    assert remaining_items == []
+  end
 end
