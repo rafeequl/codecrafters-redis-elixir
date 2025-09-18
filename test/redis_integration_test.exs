@@ -20,9 +20,16 @@ defmodule RedisIntegrationTest do
     {:ok, conn: conn}
   end
 
-  # after each test, flush the database
+  # before each test, flush the database
   setup %{conn: conn} do
+    # Clean up before test
     Redix.command(conn, ["FLUSHDB"])
+
+    # Clean up after test as well
+    on_exit(fn ->
+      Redix.command(conn, ["FLUSHDB"])
+    end)
+
     :ok
   end
 
@@ -275,10 +282,10 @@ defmodule RedisIntegrationTest do
     # - Only one client should get the item, others should block
 
     parent = self()
-    results = []
+   _results = []
 
     # Start Client-1 BLPOP
-    client1_pid = spawn(fn ->
+    _client1_pid = spawn(fn ->
       case Redix.start_link(host: "localhost", port: 6379) do
         {:ok, client1_conn} ->
           case Redix.command(client1_conn, ["BLPOP", "race_test_list", "5"]) do
@@ -295,7 +302,7 @@ defmodule RedisIntegrationTest do
     end)
 
     # Start Client-2 BLPOP (almost simultaneously)
-    client2_pid = spawn(fn ->
+    _client2_pid = spawn(fn ->
       case Redix.start_link(host: "localhost", port: 6379) do
         {:ok, client2_conn} ->
           case Redix.command(client2_conn, ["BLPOP", "race_test_list", "5"]) do
@@ -363,7 +370,7 @@ defmodule RedisIntegrationTest do
     parent = self()
 
     # Start 3 BLPOP clients
-    clients = for i <- 1..3 do
+    _clients = for i <- 1..3 do
       spawn(fn ->
         case Redix.start_link(host: "localhost", port: 6379) do
           {:ok, client_conn} ->
@@ -443,5 +450,38 @@ defmodule RedisIntegrationTest do
     # Add entry with higher timestamp - should succeed
     {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream", "2-1", "field3", "value3"])
     assert xadd_response == "2-1"
+  end
+
+  test "xadd command - valid id progression with *", %{conn: conn} do
+    # Add first entry
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream_asterisk", "1-*", "field1", "value1"])
+    assert xadd_response == "1-0"
+
+    # Add entry with higher sequence number - should succeed
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream_asterisk", "1-*", "field2", "value2"])
+    assert xadd_response == "1-1"
+
+    # Add more entry
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream_asterisk", "1-*", "field3", "value3"])
+    assert xadd_response == "1-2"
+
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream_asterisk", "1-*", "field4", "value4"])
+    assert xadd_response == "1-3"
+
+  end
+
+  test "xadd command - valid id progression with 0-*", %{conn: conn} do
+    # Add first entry
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream_asterisk_0", "0-*", "field1", "value1"])
+    assert xadd_response == "0-1"
+
+    # Add entry with higher sequence number - should succeed
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream_asterisk_0", "0-*", "field2", "value2"])
+    assert xadd_response == "0-2"
+
+    # addn second entry
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream_asterisk_0", "1-*", "field3", "value3"])
+    assert xadd_response == "1-0"
+
   end
 end

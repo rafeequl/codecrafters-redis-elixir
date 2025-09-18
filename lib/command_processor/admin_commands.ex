@@ -6,6 +6,7 @@ defmodule CommandProcessor.AdminCommands do
   alias Store
   alias RESPFormatter
   alias CommandProcessor.ListCommandsServer
+  alias CommandProcessor.StreamCommandServer
 
   @doc """
   Handle COMMAND command - return information about available commands.
@@ -27,6 +28,7 @@ defmodule CommandProcessor.AdminCommands do
   def flushdb(%{command: "FLUSHDB", args: []}) do
     Store.clear()
     ListCommandsServer.flush_all()
+    StreamCommandServer.flush_all()
     RESPFormatter.simple_string("OK")
   end
 end
