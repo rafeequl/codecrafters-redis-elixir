@@ -414,4 +414,34 @@ defmodule RedisIntegrationTest do
     {:ok, remaining_items} = Redix.command(conn, ["LRANGE", "multi_race_list", "0", "-1"])
     assert remaining_items == []
   end
+
+  test "xadd command - new stream", %{conn: conn} do
+    # Test XADD on new stream
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "new_stream", "1", "field1", "value1"])
+    assert xadd_response == "1"
+  end
+
+  test "xadd command - duplicate id rejection", %{conn: conn} do
+    # Add first entry
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "test_stream", "1-1", "field1", "value1"])
+    assert xadd_response == "1-1"
+
+    # Try to add entry with same ID - should be rejected
+    {:error, %Redix.Error{message: error_message}} = Redix.command(conn, ["XADD", "test_stream", "1-1", "field2", "value2"])
+    assert String.contains?(error_message, "ERR The ID specified in XADD is equal or smaller than the target stream top item")
+  end
+
+  test "xadd command - valid id progression", %{conn: conn} do
+    # Add first entry
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream", "1-1", "field1", "value1"])
+    assert xadd_response == "1-1"
+
+    # Add entry with higher sequence number - should succeed
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream", "1-2", "field2", "value2"])
+    assert xadd_response == "1-2"
+
+    # Add entry with higher timestamp - should succeed
+    {:ok, xadd_response} = Redix.command(conn, ["XADD", "progression_stream", "2-1", "field3", "value3"])
+    assert xadd_response == "2-1"
+  end
 end
